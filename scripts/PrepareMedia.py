@@ -118,7 +118,7 @@ if __name__ == "__main__":
         print("Build directory was not provided")
         exit()
     if inDepsDir is None:
-        print("Deps directory was not provided")
+        print("Deps directory was not provided. Ensure proper builds were executed. See init.bat for details.")
         exit()
 
     destinationMediaDir = os.path.join(inBuildDir, "media")
