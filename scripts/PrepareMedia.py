@@ -1,6 +1,5 @@
 import json
 import os
-import sys 
 import string
 import shutil
 import argparse
@@ -10,10 +9,6 @@ from PIL import Image
 
 from TextureEncoder import TextureInfo
 from TextureEncoder import TextureCompressor
-
-def FindBasisUniversal(search_path) -> string:
-
-    pass
 
 def GetSubMediaPathFromFullMediaPath(fullMediaPath : string) -> string: 
     return fullMediaPath.split("media\\")[-1]
@@ -35,27 +30,20 @@ def CheckForFileInDirectory(file_to_find, search_directory) -> bool:
             return True
     return False
 
-def PrepareImage(source_dir : string, destination_root_dir : string, file_media_path : string, basis_u_dir : string) -> None:
-
-    result_name = compressor.get_compressed_file_name()
-    result_dir = os.path.abspath(os.path.join(destination_root_dir, file_media_path, os.pardir))
-    
-    if not CheckForFileInDirectory(result_name, result_dir) and compressor.should_compress():
-        compressor.compress(result_dir)
-
 #copy media as needed 
 def FindContents(currentPath : string):
     contents = set()
 
     for dir in os.listdir(currentPath):
-        fullPath = os.path.join(currentPath, dir)
-        if os.path.isdir(fullPath):
-            #is dir need to go deeper
-            deepResults = FindContents(fullPath)
-            contents.update(deepResults)
-        else:
-            focusedPath = GetSubMediaPathFromFullMediaPath(fullPath)
-            contents.add(focusedPath)
+        if ".star_ignore" not in dir:
+            fullPath = os.path.join(currentPath, dir)
+            if os.path.isdir(fullPath):
+                #is dir need to go deeper
+                deepResults = FindContents(fullPath)
+                contents.update(deepResults)
+            else:
+                focusedPath = GetSubMediaPathFromFullMediaPath(fullPath)
+                contents.add(focusedPath)
 
     return contents
 
@@ -91,8 +79,12 @@ def ProcessNewFiles(input_media_files, current_media_files, input_media_dir, des
         full_src_file = os.path.abspath(os.path.join(input_media_dir, file))
         if IsFileAImage(full_src_file):
             textureCompressRequest = TextureInfo(full_src_file, file)
+
             if (TextureCompressor.should_compress(textureCompressRequest)):
-                compressor.add_texture(textureCompressRequest)
+                compressedName = TextureCompressor.get_compressed_file_name(textureCompressRequest)
+                relCompressedName = os.path.join(textureCompressRequest.texture_root_dir, compressedName)
+                if not relCompressedName in current_media_files:
+                    compressor.add_texture(textureCompressRequest)
             else:
                 CopyFile(input_media_dir, destination_dir, file)
         elif file not in current_media_files:
