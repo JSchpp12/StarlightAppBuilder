@@ -77,7 +77,7 @@ class TextureCompressor:
 
         for rel_output_dir in self.rel_media_dir_to_textures:
 
-            basis_command = [basis_u_exe, "-uastc", "-basis", "-slowest", "-individual", "-parallel"]
+            basis_command = [basis_u_exe, "-uastc", "-basis", "-slower", "-individual", "-parallel"]
 
             for texture in self.rel_media_dir_to_textures[rel_output_dir]:
                 relative_src_file_path = os.path.relpath(texture.texture_file_path, start=self.basis_u_dir)
