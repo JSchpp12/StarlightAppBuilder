@@ -82,7 +82,7 @@ def ProcessNewFiles(input_media_files, current_media_files, input_media_dir, des
 
             if (TextureCompressor.should_compress(textureCompressRequest)):
                 compressedName = TextureCompressor.get_compressed_file_name(textureCompressRequest)
-                relCompressedName = os.path.join(textureCompressRequest.texture_root_dir, compressedName)
+                relCompressedName = os.path.join(os.path.dirname(file), compressedName)
                 if not relCompressedName in current_media_files:
                     compressor.add_texture(textureCompressRequest)
             else:
