@@ -8,6 +8,7 @@ import filecmp
 
 from PIL import Image
 
+from TextureEncoder import TextureInfo
 from TextureEncoder import TextureCompressor
 
 def FindBasisUniversal(search_path) -> string:
@@ -35,7 +36,6 @@ def CheckForFileInDirectory(file_to_find, search_directory) -> bool:
     return False
 
 def PrepareImage(source_dir : string, destination_root_dir : string, file_media_path : string, basis_u_dir : string) -> None:
-    compressor = TextureCompressor(os.path.abspath(os.path.join(source_dir, file_media_path)), os.path.join(basis_u_dir, "BasisUniversal", "bin"))
 
     result_name = compressor.get_compressed_file_name()
     result_dir = os.path.abspath(os.path.join(destination_root_dir, file_media_path, os.pardir))
@@ -72,6 +72,9 @@ def RemoveEmptyDirectories(targetDirectory) -> None:
                 os.rmdir(dir_path)
 
 def IsFileAImage(media_file : str) -> bool:
+    if ".basis" in media_file:
+        return True
+    
     try:
         with Image.open(media_file) as img:
             img.verify()
@@ -82,12 +85,20 @@ def IsFileAImage(media_file : str) -> bool:
     return False
 
 def ProcessNewFiles(input_media_files, current_media_files, input_media_dir, destination_dir, deps_path : string) -> None:
+    compressor = TextureCompressor(os.path.join(deps_path, "BasisUniversal", "bin"))
+
     for file in input_media_files:
         full_src_file = os.path.abspath(os.path.join(input_media_dir, file))
         if IsFileAImage(full_src_file):
-            PrepareImage(input_media_dir, destination_dir, file, deps_path)
+            textureCompressRequest = TextureInfo(full_src_file, file)
+            if (TextureCompressor.should_compress(textureCompressRequest)):
+                compressor.add_texture(textureCompressRequest)
+            else:
+                CopyFile(input_media_dir, destination_dir, file)
         elif file not in current_media_files:
             CopyFile(input_media_dir, destination_dir, file)
+
+    compressor.compress(destination_dir)
 
 if __name__ == "__main__":
     inBuildDir = None
@@ -122,6 +133,8 @@ if __name__ == "__main__":
         exit()
 
     destinationMediaDir = os.path.join(inBuildDir, "media")
+    if not os.path.isdir(destinationMediaDir):
+        os.mkdir(destinationMediaDir)
     destinationConfigFile = os.path.join(inBuildDir, "config.json")
     full_deps_dir = os.path.abspath(os.path.join(os.getcwd(), inDepsDir))
     

@@ -3,10 +3,13 @@ import argparse
 import json
 import os
 
-class TextureCompressionSettings:
-    def __init__(self) -> None:
-        pass
-
+class TextureInfo:
+    def __init__(self, texture_file_path, relative_media_path) -> None:
+        self.texture_file_path = texture_file_path
+        self.texture_file_name = os.path.basename(texture_file_path)
+        self.texture_root_dir = os.path.abspath(os.path.join(self.texture_file_path, os.pardir))
+        self.relative_media_path = relative_media_path
+        
 class TextureCompressor:
     @staticmethod
     def get_filename(full_path: str) -> str:
@@ -40,39 +43,59 @@ class TextureCompressor:
     @staticmethod
     def search_for_star_ignore(texture_file, texture_root_dir) -> None:
         name_to_find = f".star_ignore_{TextureCompressor.get_filename(texture_file)}"
-
         return TextureCompressor.search_for_file(name_to_find, texture_root_dir)
-
-    def __init__(self, texture_file_path, basis_u_dir) -> None: 
-        self.texture_file_path = texture_file_path
-        self.texture_file_name = os.path.basename(texture_file_path)
+    
+    @staticmethod
+    def get_compressed_file_name(texture_info : TextureInfo) -> None: 
+        return f"{TextureCompressor.get_filename(texture_info.texture_file_name)}.basis"
+    
+    @staticmethod
+    def should_compress(texture : TextureInfo) -> bool:
+        baseName = TextureCompressor.get_filename(os.path.basename(texture.texture_file_name))
+        return TextureCompressor.search_for_star_ignore(baseName, texture.texture_root_dir) == None
+    
+    def __init__(self, basis_u_dir) -> None: 
+        self.rel_media_dir_to_textures = {}
 
         if not os.path.isdir(basis_u_dir):
             raise Exception("Provided directory to basis_u does not exist")
         
         self.basis_u_dir = basis_u_dir
-        self.texture_root_dir = os.path.abspath(os.path.join(self.texture_file_path, os.pardir))
 
-    def get_compressed_file_name(self) -> None: 
-        return f"{TextureCompressor.get_filename(self.texture_file_name)}.basis"
-    
-    def should_compress(self) -> bool:
-        baseName = TextureCompressor.get_filename(os.path.basename(self.texture_file_name))
-        return TextureCompressor.search_for_star_ignore(baseName, self.texture_root_dir) == None
+    def add_texture(self, texture : TextureInfo) -> None:
+        rel_media_path = os.path.dirname(texture.relative_media_path)
+
+        if rel_media_path not in self.rel_media_dir_to_textures:
+            self.rel_media_dir_to_textures[rel_media_path] = []
+        self.rel_media_dir_to_textures[rel_media_path].append(texture)
 
     def compress(self, output_dir) -> None: 
         if not os.path.isdir(output_dir):
             raise Exception("Directory does not exist")
         
-        compressed_file_name = self.get_compressed_file_name()
-        file_output = os.path.join(output_dir, f"{compressed_file_name}")
-        relative_src_file_path = os.path.relpath(self.texture_file_path, start=output_dir)
         basis_u_exe = os.path.join(self.basis_u_dir, "basisu.exe")
 
-        subprocess.run(
-            # ["basisu", "uastc", f"{relative_src_file_path}"], 
-            [basis_u_exe, "-uastc", "-basis", "-slower", relative_src_file_path],
-            cwd=output_dir, 
-            check=True, 
-            text=True
-        )
+        for rel_output_dir in self.rel_media_dir_to_textures:
+
+            basis_command = [basis_u_exe, "-uastc", "-basis", "-slowest", "-individual", "-parallel"]
+
+            for texture in self.rel_media_dir_to_textures[rel_output_dir]:
+                relative_src_file_path = os.path.relpath(texture.texture_file_path, start=self.basis_u_dir)
+                basis_command.append("-file")
+                basis_command.append(relative_src_file_path)
+            
+            basis_command.append("-output_path")
+            basis_command.append(os.path.relpath(os.path.join(output_dir, rel_output_dir), start=self.basis_u_dir))
+
+            try:
+                subprocess.run(
+                    basis_command,
+                    cwd=self.basis_u_dir, 
+                    check=True, 
+                    text=True
+                )
+            except subprocess.CalledProcessError as e:
+                print("Error occurred")
+                print(e)
+
+                raise Exception("Failed to compress textures")
