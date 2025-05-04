@@ -5,17 +5,17 @@ import shutil
 import argparse
 import filecmp
 
-from PIL import Image
-
-from TextureEncoder import TextureInfo
 from TextureEncoder import TextureCompressor
+from TextureEncoder import Is_File_A_Image
+from TextureEncoder import Create_Media_Path
+from PathHelpers import MediaPath
 
 def GetSubMediaPathFromFullMediaPath(fullMediaPath : string) -> string: 
     return fullMediaPath.split("media\\")[-1]
 
 def CopyFile(source_dir : string, destination_dir : string, file_media_path : string) -> None:
-    full_source_path = os.path.join(source_dir, file_media_path)
-    full_destination_path = os.path.join(destination_dir, file_media_path)
+    full_source_path = os.path.abspath(os.path.join(source_dir, os.pardir, file_media_path))
+    full_destination_path = os.path.relpath(os.path.join(destination_dir, os.pardir, file_media_path))
 
     if (not os.path.isfile(full_destination_path)):
         shutil.copytree(os.path.abspath(os.path.join(full_source_path, os.pardir)), os.path.abspath(os.path.join(full_destination_path, os.pardir)), dirs_exist_ok=True)
@@ -35,23 +35,33 @@ def FindContents(currentPath : string):
     contents = set()
 
     for dir in os.listdir(currentPath):
-        if ".star_ignore" not in dir:
+        if "." != dir[0]:
             fullPath = os.path.join(currentPath, dir)
             if os.path.isdir(fullPath):
                 #is dir need to go deeper
                 deepResults = FindContents(fullPath)
                 contents.update(deepResults)
             else:
-                focusedPath = GetSubMediaPathFromFullMediaPath(fullPath)
-                contents.add(focusedPath)
+                contents.add(fullPath)
 
     return contents
 
 def RemoveOldFiles(inputMediaFiles, currentMediaFiles, destinationMediaDir):
     for file in currentMediaFiles:
-        if not file in inputMediaFiles:
-            destinationPath = os.path.join(destinationMediaDir, file)
-            os.remove(destinationPath)
+        media_path_file = Create_Media_Path(file)
+
+        if not os.path.join(media_path_file.Get_Output_Media_Rel_Path(), media_path_file.output_file_base) in inputMediaFiles:
+            #check if overriden name is in output
+            found = False
+            media_file = Create_Media_Path(file)
+            for c_out_file in currentMediaFiles:
+                if MediaPath(c_out_file).output_file_base == media_file:
+                    found = True
+                    break
+                
+            if found:
+                destinationPath = os.path.join(destinationMediaDir, media_file.Get_Output_Media_Rel_Path())
+                os.remove(destinationPath)
 
 def RemoveEmptyDirectories(targetDirectory) -> None:
     for dir_path, sub_dir, file_names in os.walk(targetDirectory):
@@ -59,38 +69,21 @@ def RemoveEmptyDirectories(targetDirectory) -> None:
         if not sub_dir and not file_names:
                 os.rmdir(dir_path)
 
-def IsFileAImage(media_file : str) -> bool:
-    if ".basis" in media_file:
-        return True
-    
-    try:
-        with Image.open(media_file) as img:
-            img.verify()
-            return True
-    except:
-        return False
-    
-    return False
-
-def ProcessNewFiles(input_media_files, current_media_files, input_media_dir, destination_dir, deps_path : string) -> None:
+def ProcessNewFiles(input_media_files, current_media_files, input_media_dir, destination_dir, deps_path : string, use_fastest_encoding : bool) -> None:
     compressor = TextureCompressor(os.path.join(deps_path, "BasisUniversal", "bin"))
 
     for file in input_media_files:
-        full_src_file = os.path.abspath(os.path.join(input_media_dir, file))
-        if IsFileAImage(full_src_file):
-            textureCompressRequest = TextureInfo(full_src_file, file)
+        full_src_file = os.path.abspath(os.path.join(input_media_dir, os.pardir, file))
 
-            if (TextureCompressor.should_compress(textureCompressRequest)):
-                compressedName = TextureCompressor.get_compressed_file_name(textureCompressRequest)
-                relCompressedName = os.path.join(os.path.dirname(file), compressedName)
-                if not relCompressedName in current_media_files:
-                    compressor.add_texture(textureCompressRequest)
+        media_file_path = Create_Media_Path(full_src_file)
+        destination_comparison =  os.path.join(destination_dir ,media_file_path.Get_Output_Media_Rel_Path())
+        if destination_comparison not in current_media_files:
+            if Is_File_A_Image(full_src_file) and TextureCompressor.should_compress(media_file_path):
+                compressor.add_texture(media_file_path)
             else:
                 CopyFile(input_media_dir, destination_dir, file)
-        elif file not in current_media_files:
-            CopyFile(input_media_dir, destination_dir, file)
 
-    compressor.compress(destination_dir)
+    compressor.compress(destination_dir, use_fastest_encoding)
 
 if __name__ == "__main__":
     inBuildDir = None
@@ -106,6 +99,7 @@ if __name__ == "__main__":
                         help='Path to media directory')
     parser.add_argument('-d', '--depsdir', type=str, required=True, 
                         help="Path to dependencies directory")
+    parser.add_argument('-low', '--fastest', action='store_true')
 
     # Parse the arguments
     args = parser.parse_args()
@@ -113,6 +107,10 @@ if __name__ == "__main__":
     inBuildDir = args.builddir
     inMediaDir = args.mediadir
     inDepsDir = args.depsdir
+
+    compress_speed_fastest = False
+    if args.fastest:
+        compress_speed_fastest = True
 
     if inMediaDir is None:
         print("Source media directory was not provided")
@@ -124,10 +122,11 @@ if __name__ == "__main__":
         print("Deps directory was not provided. Ensure proper builds were executed. See init.bat for details.")
         exit()
 
-    destinationMediaDir = os.path.join(inBuildDir, "media")
+    destinationMediaDir = os.path.abspath(os.path.join(inBuildDir, "media"))
     if not os.path.isdir(destinationMediaDir):
-        os.mkdir(destinationMediaDir)
-    destinationConfigFile = os.path.join(inBuildDir, "config.json")
+        os.makedirs(destinationMediaDir)
+
+    destinationConfigFile = os.path.join(inBuildDir, "StarEngine.cfg")
     full_deps_dir = os.path.abspath(os.path.join(os.getcwd(), inDepsDir))
     
     print("Processing media files")
@@ -135,7 +134,7 @@ if __name__ == "__main__":
     currentMediaFiles = FindContents(destinationMediaDir)
     RemoveOldFiles(inputMediaFiles, currentMediaFiles, destinationMediaDir)
     RemoveEmptyDirectories(destinationMediaDir)
-    ProcessNewFiles(inputMediaFiles, currentMediaFiles, os.path.abspath(os.path.join(os.getcwd(), inMediaDir)), destinationMediaDir, full_deps_dir)
+    ProcessNewFiles(inputMediaFiles, currentMediaFiles, os.path.abspath(os.path.join(os.getcwd(), inMediaDir)), destinationMediaDir, full_deps_dir, compress_speed_fastest)
     print("Done")
 
     #write config file
