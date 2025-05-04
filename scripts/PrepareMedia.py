@@ -13,16 +13,16 @@ from PathHelpers import MediaPath
 def GetSubMediaPathFromFullMediaPath(fullMediaPath : string) -> string: 
     return fullMediaPath.split("media\\")[-1]
 
-def CopyFile(source_dir : string, destination_dir : string, file_media_path : string) -> None:
-    full_source_path = os.path.abspath(os.path.join(source_dir, os.pardir, file_media_path))
-    full_destination_path = os.path.relpath(os.path.join(destination_dir, os.pardir, file_media_path))
+def CopyFile(destination_dir : string, file_path : MediaPath) -> None:
+    full_destination_path = os.path.abspath(os.path.join(destination_dir, file_path.Get_Output_Media_Rel_Path()))
 
-    if (not os.path.isfile(full_destination_path)):
-        shutil.copytree(os.path.abspath(os.path.join(full_source_path, os.pardir)), os.path.abspath(os.path.join(full_destination_path, os.pardir)), dirs_exist_ok=True)
-
-        shutil.copy2(full_source_path, full_destination_path)
-    elif(not filecmp.cmp(full_source_path, full_destination_path, shallow=False)):
-        shutil.copy2(full_source_path, full_destination_path)
+    try:
+        shutil.copy2(file_path.full_input_path, full_destination_path)
+    except Exception as e: 
+        print(f"Failed to copy file.")
+        print(f"Source: {file_path.full_input_path}")
+        print(f"Destination: {full_destination_path}")
+        print(e)
 
 def CheckForFileInDirectory(file_to_find, search_directory) -> bool:
     for ele in os.listdir(search_directory):
@@ -76,12 +76,18 @@ def ProcessNewFiles(input_media_files, current_media_files, input_media_dir, des
         full_src_file = os.path.abspath(os.path.join(input_media_dir, os.pardir, file))
 
         media_file_path = Create_Media_Path(full_src_file)
-        destination_comparison =  os.path.join(destination_dir ,media_file_path.Get_Output_Media_Rel_Path())
+        destination_comparison =  os.path.join(destination_dir , media_file_path.Get_Output_Media_Rel_Path())
+
         if destination_comparison not in current_media_files:
+            # check if directors need to be created
+            destination_dirs = os.path.dirname(os.path.join(destination_dir, media_file_path.Get_Output_Media_Rel_Path()))
+            if (not os.path.isdir(destination_dirs)):
+                os.makedirs(destination_dirs)
+
             if Is_File_A_Image(full_src_file) and TextureCompressor.should_compress(media_file_path):
                 compressor.add_texture(media_file_path)
             else:
-                CopyFile(input_media_dir, destination_dir, file)
+                CopyFile(destination_dir, media_file_path)
 
     compressor.compress(destination_dir, use_fastest_encoding)
 
