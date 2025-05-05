@@ -88,7 +88,10 @@ def ProcessNewFiles(input_media_files, current_media_files, input_media_dir, des
                 compressor.add_texture(media_file_path)
             else:
                 CopyFile(destination_dir, media_file_path)
-
+        elif ((not Is_File_A_Image(full_src_file) and not filecmp.cmp(full_src_file, destination_comparison, shallow=False)) or
+                (Is_File_A_Image(full_src_file) and not TextureCompressor.should_compress(media_file_path) and not filecmp.cmp(full_src_file, destination_comparison, shallow=False))):
+            CopyFile(destination_dir, media_file_path)
+                
     compressor.compress(destination_dir, use_fastest_encoding)
 
 if __name__ == "__main__":
