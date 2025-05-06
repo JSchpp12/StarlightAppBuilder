@@ -60,7 +60,7 @@ class TextureCompressor:
 
         for rel_output_dir in self.rel_media_dir_to_textures:
 
-            basis_command = [basis_u_exe, "-uastc", "-individual", "-parallel"]
+            basis_command = [basis_u_exe, "-uastc", "-individual", "-parallel", "-mipmap"]
 
             if self.use_bases_file_type:
                 basis_command.append('-basis')
