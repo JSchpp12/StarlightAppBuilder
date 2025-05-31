@@ -14,5 +14,5 @@ mkdir deps
 mkdir deps/BasisUniversal
 mkdir deps/BasisUniversal/bin
 
-cp -r ./extern/BasisUniversal/bin ./deps/BasisUniversal/bin
+cp -r ./extern/BasisUniversal/bin ./deps/BasisUniversal/
 cp -r ./extern/BasisUniversal/build/Release ./deps/BasisUniversal/
