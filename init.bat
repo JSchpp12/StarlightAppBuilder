@@ -21,5 +21,6 @@ cd %original_dir%
 
 echo "%basis_build_dir%\Release\*"
 if not exist "%final_basis_dir%\bin" mkdir "%final_basis_dir%\bin"
+if not exist "%final_basis_dir%\Release" mkdir "%final_basis_dir%\Release"
 xcopy /E /I /Y "%basis_dir%\bin\*" "%final_basis_dir%\bin"
-xcopy /E /I /Y "%basis_build_dir%\Release\*" "%final_basis_dir%"
+xcopy /E /I /Y "%basis_build_dir%\Release\*" "%final_basis_dir%\Release\"
