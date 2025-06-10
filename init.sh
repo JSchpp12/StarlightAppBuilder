@@ -1,5 +1,8 @@
 #! bin/bash
 
+git submodule init
+git submodule update
+
 mkdir extern/BasisUniversal/build
 
 cd extern/BasisUniversal/build
