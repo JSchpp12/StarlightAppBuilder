@@ -47,7 +47,6 @@ class TextureCompressor:
         self.basis_u_dir = basis_u_dir
 
     def add_texture(self, texture : MediaPath) -> None:
-
         if texture.relative_media_path_parent not in self.rel_media_dir_to_textures:
             self.rel_media_dir_to_textures[texture.relative_media_path_parent] = []
         self.rel_media_dir_to_textures[texture.relative_media_path_parent].append(texture)
@@ -57,6 +56,8 @@ class TextureCompressor:
             os.mkdir(output_dir)
         
         basis_u_exe = os.path.join(self.basis_u_dir, "basisu.exe")
+        if not os.path.isfile(basis_u_exe):
+            basis_u_exe = os.path.join(self.basis_u_dir, "basisu")
 
         for rel_output_dir in self.rel_media_dir_to_textures:
 
@@ -75,12 +76,13 @@ class TextureCompressor:
                 os.makedirs(full_output)
 
             for texture in self.rel_media_dir_to_textures[rel_output_dir]:
-                relative_src_file_path = os.path.relpath(texture.full_input_path, start=self.basis_u_dir)
+                # relative_src_file_path = os.path.relpath(texture.full_input_path, start=self.basis_u_dir)
                 basis_command.append("-file")
-                basis_command.append(relative_src_file_path)
+                basis_command.append(texture.full_input_path)
             
             basis_command.append("-output_path")
-            basis_command.append(os.path.relpath(os.path.join(output_dir, rel_output_dir), start=self.basis_u_dir))
+            # basis_command.append(os.path.relpath(os.path.join(output_dir, rel_output_dir), start=self.basis_u_dir))
+            basis_command.append(os.path.abspath(os.path.join(output_dir, rel_output_dir)))
 
             try:
                 subprocess.run(
@@ -103,7 +105,10 @@ def Is_File_A_Image(media_file : str) -> bool:
         with Image.open(media_file) as img:
             img.verify()
             return True
-    except Exception:
+    except Exception as ex:
+        if ".png" in media_file or ".jpg" in media_file:
+            return True
+        
         return False
     
     return False

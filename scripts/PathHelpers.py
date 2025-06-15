@@ -3,7 +3,7 @@ import os
 class MediaPath:
     @staticmethod
     def GetSubMediaPathFromFullMediaPath(fullMediaPath : str) -> str: 
-        return fullMediaPath.split("media\\")[-1]
+        return fullMediaPath.split(f"media{os.path.sep}")[-1]
     
     @staticmethod
     def GetStemOfFile(full_path : str) -> str:
