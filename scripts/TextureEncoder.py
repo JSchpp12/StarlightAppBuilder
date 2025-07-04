@@ -37,6 +37,13 @@ class TextureCompressor:
     def should_compress(texture : MediaPath) -> bool:
         return TextureCompressor.search_for_star_ignore(texture) == None
     
+    @staticmethod
+    def batch_list(lst, batch_size):
+        """Split list into batches of specified size."""
+        for i in range(0, len(lst), batch_size):
+            yield lst[i:i + batch_size]
+
+    
     def __init__(self, basis_u_dir : str, use_basis_file_type : bool = False) -> None: 
         self.rel_media_dir_to_textures = {}
         self.use_bases_file_type = use_basis_file_type
@@ -51,7 +58,7 @@ class TextureCompressor:
             self.rel_media_dir_to_textures[texture.relative_media_path_parent] = []
         self.rel_media_dir_to_textures[texture.relative_media_path_parent].append(texture)
 
-    def compress(self, output_dir, use_compress_speed_fastest : bool) -> None: 
+    def compress(self, output_dir, use_compress_speed_fastest: bool, batch_size: int = 50) -> None:
         if not os.path.isdir(output_dir):
             os.mkdir(output_dir)
         
@@ -59,43 +66,37 @@ class TextureCompressor:
         if not os.path.isfile(basis_u_exe):
             basis_u_exe = os.path.join(self.basis_u_dir, "basisu")
 
-        for rel_output_dir in self.rel_media_dir_to_textures:
-
-            basis_command = [basis_u_exe, "-uastc", "-individual", "-parallel", "-mipmap"]
+        for rel_output_dir, textures in self.rel_media_dir_to_textures.items():
+            base_command = [basis_u_exe, "-uastc", "-individual", "-parallel", "-mipmap"]
 
             if self.use_bases_file_type:
-                basis_command.append('-basis')
+                base_command.append("-basis")
 
-            if use_compress_speed_fastest:
-                basis_command.append('-fastest')
-            else:
-                basis_command.append('-slower')
+            base_command.append("-fastest" if use_compress_speed_fastest else "-slower")
 
             full_output = os.path.join(output_dir, rel_output_dir)
-            if not os.path.isdir(full_output):
-                os.makedirs(full_output)
+            os.makedirs(full_output, exist_ok=True)
 
-            for texture in self.rel_media_dir_to_textures[rel_output_dir]:
-                # relative_src_file_path = os.path.relpath(texture.full_input_path, start=self.basis_u_dir)
-                basis_command.append("-file")
-                basis_command.append(texture.full_input_path)
-            
-            basis_command.append("-output_path")
-            # basis_command.append(os.path.relpath(os.path.join(output_dir, rel_output_dir), start=self.basis_u_dir))
-            basis_command.append(os.path.abspath(os.path.join(output_dir, rel_output_dir)))
+            base_command += ["-output_path", os.path.abspath(full_output)]
 
-            try:
-                subprocess.run(
-                    basis_command,
-                    cwd=self.basis_u_dir, 
-                    check=True, 
-                    text=True
-                )
-            except subprocess.CalledProcessError as e:
-                print("Error occurred")
-                print(e)
+            # Batch texture files
+            texture_paths = [t.full_input_path for t in textures]
+            for batch in TextureCompressor.batch_list(texture_paths, batch_size):
+                batch_command = base_command.copy()
+                for texture_path in batch:
+                    batch_command += ["-file", texture_path]
 
-                raise Exception("Failed to compress textures")
+                try:
+                    subprocess.run(
+                        batch_command,
+                        cwd=self.basis_u_dir,
+                        check=True,
+                        text=True
+                    )
+                except subprocess.CalledProcessError as e:
+                    print("Error occurred during texture compression:")
+                    print(e)
+                    raise Exception("Failed to compress textures")
             
 def Is_File_A_Image(media_file : str) -> bool:
     if ".basis" in media_file:
