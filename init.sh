@@ -1,19 +1,19 @@
 git submodule init
 git submodule update
 
-mkdir extern/BasisUniversal/build
+mkdir -p extern/BasisUniversal/build
 
 cd extern/BasisUniversal/build
 
 cmake -DCMAKE_CXX_STANDARD=17 -DCMAKE_BUILD_TYPE=Release ..
 
-cmake --build . --config Release -j 6
-
+cmake --build . --config Release
 cd ../../../
-
-mkdir deps
-mkdir deps/BasisUniversal
-mkdir deps/BasisUniversal/bin
+mkdir -p deps
+mkdir -p deps/BasisUniversal
+mkdir -p deps/BasisUniversal/bin
 
 cp -r ./extern/BasisUniversal/bin ./deps/BasisUniversal/
-cp -r ./extern/BasisUniversal/build/Release ./deps/BasisUniversal/
+if [[ -d "extern/BasisUniversal/build/Release" ]]; then
+    cp -r ./extern/BasisUniversal/build/Release ./deps/BasisUniversal/
+fi
