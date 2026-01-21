@@ -67,12 +67,13 @@ class TextureCompressor:
             basis_u_exe = os.path.join(self.basis_u_dir, "basisu")
 
         for rel_output_dir, textures in self.rel_media_dir_to_textures.items():
-            base_command = [basis_u_exe, "-uastc", "-individual", "-parallel", "-mipmap"]
+            base_command = [basis_u_exe, "-uastc", "-individual", "-mipmap"]
 
             if self.use_bases_file_type:
                 base_command.append("-basis")
 
-            base_command.append("-fastest" if use_compress_speed_fastest else "-slower")
+            base_command.append("-quality")
+            base_command.append("25" if use_compress_speed_fastest else "100")
 
             full_output = os.path.join(output_dir, rel_output_dir)
             os.makedirs(full_output, exist_ok=True)
