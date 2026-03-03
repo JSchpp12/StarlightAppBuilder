@@ -3,7 +3,7 @@ import argparse
 import json
 import os
 
-from PathHelpers import MediaPath
+from star_app_builder.common import MediaPath
 from PIL import Image
         
 class TextureCompressor:
@@ -75,7 +75,9 @@ class TextureCompressor:
             base_command.append("-quality")
             base_command.append("25" if use_compress_speed_fastest else "100")
 
-            full_output = os.path.join(output_dir, rel_output_dir)
+            full_output = output_dir
+            if rel_output_dir is not None:
+                full_output = os.path.join(output_dir, rel_output_dir)
             os.makedirs(full_output, exist_ok=True)
 
             base_command += ["-output_path", os.path.abspath(full_output)]
@@ -115,15 +117,15 @@ def Is_File_A_Image(media_file : str) -> bool:
     
     return False
 
-def Generate_Media_File_For_Image(media_file : str) -> MediaPath:
-    media_file_path = MediaPath(media_file)
+def Generate_Media_File_For_Image(media_file : str, subDir : str) -> MediaPath:
+    media_file_path = MediaPath(media_file, subDir)
 
     if (TextureCompressor.should_compress(media_file_path)):
         media_file_path.output_file_base = TextureCompressor.get_compressed_file_name(media_file_path)
     return media_file_path
 
-def Create_Media_Path(full_media_path : str) -> MediaPath:
+def Create_Media_Path(full_media_path : str, subDir : str) -> MediaPath:
     if (Is_File_A_Image(full_media_path)):
-        return Generate_Media_File_For_Image(full_media_path)
+        return Generate_Media_File_For_Image(full_media_path, subDir)
     else:
-        return MediaPath(full_media_path)
+        return MediaPath(full_media_path, subDir)
