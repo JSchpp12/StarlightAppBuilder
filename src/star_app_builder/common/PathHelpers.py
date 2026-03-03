@@ -10,9 +10,9 @@ class MediaPath:
         base = os.path.basename(full_path)
         return os.path.splitext(base)[0]
     
-    def __init__(self, full_path : str, override_output_file : str = None) -> None:
+    def __init__(self, full_path : str, media_relative_path : str, override_output_file : str = None) -> None:
         self.full_input_path = full_path
-        self.relative_media_path_parent = os.path.dirname(MediaPath.GetSubMediaPathFromFullMediaPath(full_path))
+        self.relative_media_path_parent = media_relative_path
         self.input_file_base = os.path.basename(full_path)
 
         if override_output_file is None:
@@ -27,4 +27,7 @@ class MediaPath:
         return os.path.splitext(self.output_file_base)[0]
     
     def Get_Output_Media_Rel_Path(self) -> str:
-        return os.path.join(self.relative_media_path_parent, self.output_file_base)
+        if (self.relative_media_path_parent is not None):
+            return os.path.join(self.relative_media_path_parent, self.output_file_base)
+        else:
+            return self.output_file_base
