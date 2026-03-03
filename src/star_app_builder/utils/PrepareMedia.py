@@ -192,8 +192,7 @@ def main(
     outDir: str,
     depsDir: str,
     inConfigFilePath: str,
-    fastestOption,
-    createConfig: bool = False,
+    fastestOption
 ):
     if inDir is None:
         print("Source media directory was not provided")
@@ -220,9 +219,6 @@ def main(
     print("Processing media files")
     processDir(None, inDir, outDir, depsDir, inConfigFilePath, compress_speed_fastest)
     print("Done")
-
-    if createConfig is not None and createConfig:
-        mainPrepConfig(outDir, None)
 
 
 def main_with_args():

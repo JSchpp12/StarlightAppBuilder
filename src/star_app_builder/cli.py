@@ -54,8 +54,8 @@ def main():
     args = parser.parse_args()
 
     if args.command == "prep-media":
-        mainPrepMedia(args.inDir, args.outDir, args.depsDir, None, args.fastest, args.createConfig)
-    if args.command == "create-config":
+        mainPrepMedia(args.inDir, args.outDir, args.depsDir, None, args.fastest)
+    elif args.command == "create-config":
         mainPrepConfig(args.outDir, args.inConfig)
     else:
         print("Invalid argument")
