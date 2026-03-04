@@ -1,6 +1,8 @@
 #!/bin/bash
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+python -m pip install .
+
 mkdir -p ${SCRIPT_DIR}/extern/BasisUniversal
 cd ${SCRIPT_DIR}/extern/BasisUniversal
 rm -rf build

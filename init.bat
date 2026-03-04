@@ -3,6 +3,8 @@
 git submodule init
 git submodule update
 
+python -m pip install .
+
 set original_dir=%cd%
 set build_dir=build
 set final_basis_dir=deps/BasisUniversal
