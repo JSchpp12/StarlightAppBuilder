@@ -161,6 +161,7 @@ def processDir(
     if not os.path.isdir(currentOutDir):
         os.mkdir(currentOutDir)
 
+    files = []
     for ele in os.listdir(currentInDir):
         elePath = os.path.join(currentInDir, ele)
         if os.path.isdir(elePath):
@@ -171,14 +172,14 @@ def processDir(
             processDir(
                 subInDir, inDir, outDir, depsDir, inConfigFilePath, fastestOption
             )
+        else:
+            #process file
+            files.append(elePath)
 
-    inputMediaFiles = FindContents(currentInDir)
     currentMediaFiles = FindContents(currentOutDir)
-    RemoveOldFiles(curDir, inputMediaFiles, currentMediaFiles, outDir)
-    RemoveEmptyDirectories(currentOutDir)
     ProcessNewFiles(
         curDir,
-        inputMediaFiles,
+        files,
         currentMediaFiles,
         inDir,
         outDir,
@@ -186,6 +187,10 @@ def processDir(
         fastestOption,
     )
 
+
+    inputMediaFiles = FindContents(currentInDir)
+    RemoveOldFiles(curDir, inputMediaFiles, currentMediaFiles, outDir)
+    RemoveEmptyDirectories(currentOutDir)
 
 def main(
     inDir: str,
