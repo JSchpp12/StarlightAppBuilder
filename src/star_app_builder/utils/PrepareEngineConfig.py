@@ -8,8 +8,7 @@ def createConfigfile(outDir: str, inConfigFilePath: str):
 
     if not os.path.isfile(destinationConfigFile):
         with open(destinationConfigFile, "w", encoding="utf-8") as f:
-            json.dump(
-                {
+            configData = {
                     "app_name": "Default Starlight App",
                     "media_directory": "./media/",
                     "texture_filtering": "linear",
@@ -19,8 +18,12 @@ def createConfigfile(outDir: str, inConfigFilePath: str):
                     "required_device_feature_shader_float64": "true",
                     "resolution_x": "1280",
                     "resolution_y": "720",
-                },
+                    "scene_file": "StarScene.json",
+                }
+            json.dump(
+                configData,
                 f,
+                indent=4,
             )
 
 
