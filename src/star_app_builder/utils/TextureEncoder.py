@@ -4,8 +4,25 @@ import json
 import os
 
 from star_app_builder.common import MediaPath
-from PIL import Image
-        
+
+# The authoritative set of extensions eligible for texture compression.
+# Is_File_A_Image decides purely by extension (an O(1) string check with no
+# disk I/O and no Pillow dependency), so this set also defines the routing
+# policy: listed extensions are treated as images and handed to the encoder;
+# everything else is copied as-is.
+#
+# This preserves the original routing behaviour, which was an accident of what
+# Pillow could open: .exr / .hdr / .ktx2 returned False (Pillow cannot open
+# them by default) and were copied, so they are intentionally NOT listed here.
+# Add them here if you want them compressed (basisu supports UASTC HDR).
+_IMAGE_EXTENSIONS = {
+    ".png", ".jpg", ".jpeg", ".bmp", ".gif",
+    ".tif", ".tiff", ".webp", ".tga", ".basis",
+}
+
+# Per-run cache so the ignore-marker lookup runs at most once per file.
+_should_compress_cache = {}
+
 class TextureCompressor:
     @staticmethod
     def search_for_file(file_path : str, texture_root_dir):
@@ -23,8 +40,16 @@ class TextureCompressor:
     
     @staticmethod
     def search_for_star_ignore(texture_path : MediaPath) -> None:
+        # Look only in the texture's own directory rather than recursively
+        # walking the whole subtree. The `.star_ignore_<stem>` marker is a
+        # per-texture flag, so a single directory listing is sufficient and
+        # avoids an O(tree size) scan per image.
         name_to_find = f".star_ignore_{texture_path.Get_Output_Stem()}"
-        return TextureCompressor.search_for_file(name_to_find, os.path.dirname(texture_path.full_input_path))
+        texture_dir = os.path.dirname(texture_path.full_input_path)
+        if not texture_dir or not os.path.isdir(texture_dir):
+            return None
+        candidate = os.path.join(texture_dir, name_to_find)
+        return candidate if os.path.isfile(candidate) else None
     
     @staticmethod
     def get_compressed_file_name(texture_info : MediaPath, use_basis_file_format : bool = False) -> str: 
@@ -35,7 +60,16 @@ class TextureCompressor:
     
     @staticmethod
     def should_compress(texture : MediaPath) -> bool:
-        return TextureCompressor.search_for_star_ignore(texture) == None
+        # Memoized per input path: the ignore-marker lookup only needs to run
+        # once per file even though should_compress is called multiple times
+        # for the same texture during a single run.
+        key = os.path.abspath(texture.full_input_path)
+        cached = _should_compress_cache.get(key)
+        if cached is not None:
+            return cached
+        result = TextureCompressor.search_for_star_ignore(texture) is None
+        _should_compress_cache[key] = result
+        return result
     
     @staticmethod
     def batch_list(lst, batch_size):
@@ -102,20 +136,8 @@ class TextureCompressor:
                     raise Exception("Failed to compress textures")
             
 def Is_File_A_Image(media_file : str) -> bool:
-    if ".basis" in media_file:
-        return True
-    
-    try:
-        with Image.open(media_file) as img:
-            img.verify()
-            return True
-    except Exception as ex:
-        if ".png" in media_file or ".jpg" in media_file:
-            return True
-        
-        return False
-    
-    return False
+    ext = os.path.splitext(media_file)[1].lower()
+    return ext in _IMAGE_EXTENSIONS
 
 def Generate_Media_File_For_Image(media_file : str, subDir : str) -> MediaPath:
     media_file_path = MediaPath(media_file, subDir)

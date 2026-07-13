@@ -1,7 +1,6 @@
 @echo off
 
 git submodule init
-git submodule update
 
 python -m pip install .
 

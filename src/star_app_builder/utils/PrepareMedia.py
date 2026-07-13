@@ -5,6 +5,8 @@ import shutil
 import argparse
 import filecmp
 
+from tqdm import tqdm
+
 from .TextureEncoder import TextureCompressor
 from .TextureEncoder import Is_File_A_Image
 from .TextureEncoder import Create_Media_Path
@@ -54,30 +56,65 @@ def FindContents(currentPath: string):
     return contents
 
 
+def BuildDirectoryIndex(root: str):
+    """Walk `root` exactly once and bucket files by directory.
+
+    Returns (immediate, all_files) where:
+      immediate[abs_dir] -> set of absolute paths of files directly in that dir
+      all_files          -> set of every file path under root (recursive)
+
+    This replaces the per-directory recursive FindContents calls in processDir,
+    which re-walked every ancestor's subtree and was O(N * depth). Per-directory
+    *subtree* sets are intentionally NOT materialized here (that would itself be
+    O(N * depth)); callers that need "everything under here" use all_files (a
+    single root-level recursive set) or call FindContents ad-hoc on one subtree.
+    """
+    immediate = {}
+    all_files = set()
+    if not os.path.isdir(root):
+        return immediate, all_files
+
+    for dp, dirs, files in os.walk(root):
+        dp_abs = os.path.abspath(dp)
+        file_set = set()
+        for f in files:
+            p = os.path.abspath(os.path.join(dp, f))
+            file_set.add(p)
+            all_files.add(p)
+        immediate[dp_abs] = file_set
+
+    return immediate, all_files
+
+
 def RemoveOldFiles(subDir, inputMediaFiles, currentMediaFiles, destinationMediaDir):
-    for file in currentMediaFiles:
-        media_path_file = Create_Media_Path(file, subDir)
+    """Remove output files that no longer correspond to a current input file.
 
-        if (
-            not os.path.join(
-                media_path_file.Get_Output_Media_Rel_Path(),
-                media_path_file.output_file_base,
-            )
-            in inputMediaFiles
-        ):
-            # check if overriden name is in output
-            found = False
-            media_file = Create_Media_Path(file, subDir)
-            for c_out_file in currentMediaFiles:
-                if MediaPath(c_out_file, subDir).output_file_base == media_file:
-                    found = True
-                    break
-
-            if found:
-                destinationPath = os.path.join(
-                    destinationMediaDir, media_file.Get_Output_Media_Rel_Path()
+    Operates per-directory: inputMediaFiles and currentMediaFiles are the
+    immediate (non-recursive) absolute-path file sets for the same logical
+    subdir. The expected set of output paths is derived from the current
+    inputs (input -> output via Create_Media_Path, which honours compression
+    renaming and .star_ignore markers), and any existing output file not in
+    that expected set is stale and removed.
+    """
+    expected_outputs = set()
+    for in_file in inputMediaFiles:
+        media_path = Create_Media_Path(in_file, subDir)
+        expected_outputs.add(
+            os.path.abspath(
+                os.path.join(
+                    destinationMediaDir, media_path.Get_Output_Media_Rel_Path()
                 )
-                os.remove(destinationPath)
+            )
+        )
+
+    for out_file in currentMediaFiles:
+        if out_file not in expected_outputs:
+            try:
+                os.remove(out_file)
+            except OSError as e:
+                print(f"Failed to remove stale output file.")
+                print(f"File: {out_file}")
+                print(e)
 
 
 def RemoveEmptyDirectories(targetDirectory) -> None:
@@ -95,6 +132,7 @@ def ProcessNewFiles(
     destination_dir,
     deps_path: string,
     use_fastest_encoding: bool,
+    progress: tqdm,
 ) -> None:
     compressor = TextureCompressor(os.path.join(deps_path, "BasisUniversal", "bin"))
 
@@ -102,12 +140,18 @@ def ProcessNewFiles(
         full_src_file = os.path.abspath(os.path.join(input_media_dir, os.pardir, file))
 
         media_file_path = Create_Media_Path(full_src_file, subDir)
-        destination_comparison = os.path.join(
-            destination_dir, media_file_path.output_file_base
+        # Normalize to an absolute path so the form matches the absolute
+        # paths stored in current_media_files (built by BuildDirectoryIndex
+        # via os.path.abspath). Without this, a relative destination_dir
+        # yields a relative destination_comparison that never matches the
+        # absolute set entries, so every file is wrongly treated as new and
+        # reprocessed.
+        destination_comparison = os.path.abspath(
+            os.path.join(destination_dir, media_file_path.output_file_base)
         )
         if subDir is not None:
-            destination_comparison = os.path.join(
-                destination_dir, subDir, media_file_path.output_file_base
+            destination_comparison = os.path.abspath(
+                os.path.join(destination_dir, subDir, media_file_path.output_file_base)
             )
 
         if destination_comparison not in current_media_files:
@@ -133,6 +177,8 @@ def ProcessNewFiles(
         ):
             CopyFile(destination_dir, media_file_path)
 
+        progress.update()
+
     compressor.compress(destination_dir, use_fastest_encoding)
 
 
@@ -143,6 +189,9 @@ def processDir(
     depsDir: str,
     inConfigFilePath: str,
     fastestOption: bool,
+    progress: tqdm,
+    in_immediate: dict,
+    out_immediate: dict,
 ):
     full_deps_dir = os.path.abspath(os.path.join(os.getcwd(), depsDir))
 
@@ -170,13 +219,25 @@ def processDir(
                 subInDir = os.path.join(curDir, ele)
 
             processDir(
-                subInDir, inDir, outDir, depsDir, inConfigFilePath, fastestOption
+                subInDir,
+                inDir,
+                outDir,
+                depsDir,
+                inConfigFilePath,
+                fastestOption,
+                progress,
+                in_immediate,
+                out_immediate,
             )
         else:
-            #process file
+            # process file
             files.append(elePath)
 
-    currentMediaFiles = FindContents(currentOutDir)
+    # Use the precomputed per-directory file sets instead of re-walking the
+    # subtree (FindContents) at every level. The sets reflect the pre-existing
+    # state captured before the run; files written during this run are not
+    # "current media"
+    currentMediaFiles = out_immediate.get(os.path.abspath(currentOutDir), set())
     ProcessNewFiles(
         curDir,
         files,
@@ -185,20 +246,15 @@ def processDir(
         outDir,
         full_deps_dir,
         fastestOption,
+        progress,
     )
 
-
-    inputMediaFiles = FindContents(currentInDir)
+    inputMediaFiles = in_immediate.get(os.path.abspath(currentInDir), set())
     RemoveOldFiles(curDir, inputMediaFiles, currentMediaFiles, outDir)
     RemoveEmptyDirectories(currentOutDir)
 
-def main(
-    inDir: str,
-    outDir: str,
-    depsDir: str,
-    inConfigFilePath: str,
-    fastestOption
-):
+
+def main(inDir: str, outDir: str, depsDir: str, inConfigFilePath: str, fastestOption):
     if inDir is None:
         print("Source media directory was not provided")
         exit()
@@ -217,12 +273,38 @@ def main(
     if not os.path.isdir(outDir):
         os.makedirs(outDir)
 
+    # Normalize to absolute paths once so every downstream os.path.join /
+    # membership comparison (ProcessNewFiles, RemoveOldFiles, etc.) operates
+    # on a consistent absolute form, regardless of whether the caller passed
+    # relative paths (the CLI forwards user paths verbatim).
+    inDir = os.path.abspath(inDir)
+    outDir = os.path.abspath(outDir)
+    depsDir = os.path.abspath(depsDir)
+
     compress_speed_fastest = False
     if fastestOption:
         compress_speed_fastest = True
 
+    # Build per-directory file indices once with a single os.walk of each tree
+    in_immediate, _ = BuildDirectoryIndex(inDir)
+    out_immediate, _ = BuildDirectoryIndex(outDir)
+
     print("Processing media files")
-    processDir(None, inDir, outDir, depsDir, inConfigFilePath, compress_speed_fastest)
+    # Indeterminate progress (no total/percentage): tqdm just counts files as
+    # they are preprocessed, avoiding an extra full tree walk to pre-count.
+    progress = tqdm(unit=" files")
+    processDir(
+        None,
+        inDir,
+        outDir,
+        depsDir,
+        inConfigFilePath,
+        compress_speed_fastest,
+        progress,
+        in_immediate,
+        out_immediate,
+    )
+    progress.close()
     print("Done")
 
 
