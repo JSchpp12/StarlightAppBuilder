@@ -1,0 +1,25 @@
+# Keep native build artifacts, caches, and local envs out of the image context.
+# NOTE: do NOT ignore extern/BasisUniversal source itself.
+.git
+**/__pycache__
+**/*.pyc
+extern/BasisUniversal/build
+extern/BasisUniversal/build_dist
+deps
+build
+*.egg-info
+.venv
+venv
+.codex
+.agents
+
+# Never copy a host-built basisu binary into the image (wrong platform). The
+# build hook also wipes these inside the container; this just keeps the context
+# lean and avoids accidental cross-platform contamination.
+extern/BasisUniversal/bin/basisu
+extern/BasisUniversal/bin/basisu.exe
+
+# dist/ holds the Dockerfile.* recipes and the built wheels. Keep the recipes
+# visible in the context but never copy built wheels into the image.
+dist/*
+!dist/Dockerfile.*

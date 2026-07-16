@@ -1,0 +1,29 @@
+# Builder image for StarAppBuilder wheels on an Ubuntu/Debian target.
+#
+# This image only provisions the toolchain (CMake, compiler, Python build
+# tooling). The actual wheel build is run inside a container started from this
+# image with the project mounted at /work by build_wheel.sh / build_wheel.bat,
+# so the wheel lands directly on the host.
+#
+# Used with target name: ubuntu
+
+FROM ubuntu:22.04
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        cmake \
+        g++ \
+        make \
+        git \
+        python3 \
+        python3-pip \
+        python3-venv \
+    && rm -rf /var/lib/apt/lists/*
+
+# Isolated venv so we do not fight the distro-managed pip. hatchling is
+# installed here so `python -m build --no-isolation` works without network.
+RUN python3 -m venv /opt/venv
+ENV PATH=/opt/venv/bin:${PATH}
+RUN pip install --upgrade pip build hatchling
+
+WORKDIR /work

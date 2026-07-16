@@ -16,7 +16,9 @@ def addMediaPrepArgs(subparser):
     parserGenerate.add_argument(
         "-deps",
         "--depsDir",
-        help="Directory containing the dependencies for media prep such as basis universal",
+        required=False,
+        help="Optional override: deps directory containing BasisUniversal/bin. "
+        "If omitted, the basisu binary bundled with this package is used.",
     )
     parserGenerate.add_argument(
         "-low", "--fastest", action="store_true", help="Enable low quality mode"

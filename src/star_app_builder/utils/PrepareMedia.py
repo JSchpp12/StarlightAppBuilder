@@ -134,7 +134,11 @@ def ProcessNewFiles(
     use_fastest_encoding: bool,
     progress: tqdm,
 ) -> None:
-    compressor = TextureCompressor(os.path.join(deps_path, "BasisUniversal", "bin"))
+    if deps_path is not None:
+        compressor = TextureCompressor(os.path.join(deps_path, "BasisUniversal", "bin"))
+    else:
+        # Use the basisu binary bundled into the wheel at install time.
+        compressor = TextureCompressor(None)
 
     for file in input_media_files:
         full_src_file = os.path.abspath(os.path.join(input_media_dir, os.pardir, file))
@@ -193,7 +197,11 @@ def processDir(
     in_immediate: dict,
     out_immediate: dict,
 ):
-    full_deps_dir = os.path.abspath(os.path.join(os.getcwd(), depsDir))
+    # depsDir is optional; when omitted the basisu binary bundled with the
+    # package is used.
+    full_deps_dir = None
+    if depsDir is not None:
+        full_deps_dir = os.path.abspath(os.path.join(os.getcwd(), depsDir))
 
     currentInDir = inDir
     if curDir is not None:
@@ -261,11 +269,14 @@ def main(inDir: str, outDir: str, depsDir: str, inConfigFilePath: str, fastestOp
     if outDir is None:
         print("Build directory was not provided")
         exit()
-    if depsDir is None:
-        print(
-            "Deps directory was not provided. Ensure proper builds were executed. See init.bat for details."
-        )
+
+    if depsDir is not None and not os.path.isdir(depsDir):
+        print(f"The provided deps dir does not exist: {depsDir}")
         exit()
+    if depsDir is None:
+        print("Using basisu binary bundled with this install.")
+    else:
+        print(f"Using basisu from provided deps dir: {depsDir}")
 
     if not os.path.isdir(inDir):
         print(f"The provided input dir does not exist: {inDir}")
@@ -322,8 +333,10 @@ def main_with_args():
         "-d",
         "--depsdir",
         type=str,
-        required=True,
-        help="Path to dependencies directory",
+        required=False,
+        help="Optional path to a dependencies directory containing "
+        "BasisUniversal/bin. If omitted, the basisu binary bundled with "
+        "this package is used.",
     )
     parser.add_argument("-low", "--fastest", action="store_true")
 

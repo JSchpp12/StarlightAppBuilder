@@ -1,0 +1,30 @@
+# Builder image for StarAppBuilder wheels on a Rocky Linux 9 target.
+#
+# This image only provisions the toolchain (CMake, compiler, Python build
+# tooling). The actual wheel build is run inside a container started from this
+# image with the project mounted at /work by build_wheel.sh / build_wheel.bat,
+# so the wheel lands directly on the host.
+#
+# Used with target name: rocky
+
+FROM rockylinux/rockylinux:9-ubi-init
+
+RUN dnf install -y --setopt=install_weak_deps=False \
+        ca-certificates \
+        cmake \
+        gcc-c++ \
+        make \
+        git \
+        python3 \
+        python3-pip \
+    && dnf clean all
+
+# RHEL 9 marks the system Python as externally managed (PEP 668). Use a venv
+# that inherits system pip (--system-site-packages) to sidestep both
+# --break-system-packages and ensurepip quirks. hatchling is installed here so
+# `python -m build --no-isolation` works without network.
+RUN python3 -m venv --system-site-packages /opt/venv
+ENV PATH=/opt/venv/bin:${PATH}
+RUN pip install --upgrade pip build hatchling
+
+WORKDIR /work

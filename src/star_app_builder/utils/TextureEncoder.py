@@ -2,8 +2,10 @@ import subprocess
 import argparse
 import json
 import os
+import sys
 
 from star_app_builder.common import MediaPath
+from star_app_builder.common import get_bundled_basisu_path
 
 # The authoritative set of extensions eligible for texture compression.
 # Is_File_A_Image decides purely by extension (an O(1) string check with no
@@ -77,15 +79,44 @@ class TextureCompressor:
         for i in range(0, len(lst), batch_size):
             yield lst[i:i + batch_size]
 
+    @staticmethod
+    def _resolve_basis_u_exe(basis_u_dir):
+        """Locate the basisu executable within the given directory."""
+        names = (
+            ("basisu.exe", "basisu")
+            if sys.platform == "win32"
+            else ("basisu", "basisu.exe")
+        )
+        for name in names:
+            candidate = os.path.join(basis_u_dir, name)
+            if os.path.isfile(candidate):
+                return candidate
+        return None
     
-    def __init__(self, basis_u_dir : str, use_basis_file_type : bool = False) -> None: 
+    def __init__(self, basis_u_dir : str = None, use_basis_file_type : bool = False) -> None: 
         self.rel_media_dir_to_textures = {}
         self.use_bases_file_type = use_basis_file_type
 
-        if not os.path.isdir(basis_u_dir):
-            raise Exception("Provided directory to basis_u does not exist")
-        
-        self.basis_u_dir = basis_u_dir
+        if basis_u_dir is not None:
+            # Explicit deps directory provided on the command line.
+            if not os.path.isdir(basis_u_dir):
+                raise Exception("Provided directory to basis_u does not exist")
+            self.basis_u_dir = basis_u_dir
+            self.basis_u_exe = TextureCompressor._resolve_basis_u_exe(basis_u_dir)
+            if self.basis_u_exe is None:
+                raise Exception(
+                    f"basisu executable not found in provided deps dir: {basis_u_dir}"
+                )
+        else:
+            # Fall back to the binary bundled into the wheel at install time.
+            self.basis_u_exe = get_bundled_basisu_path()
+            if self.basis_u_exe is None:
+                raise Exception(
+                    "No basisu executable was bundled with this install and no "
+                    "-deps directory was provided. Reinstall the package or pass "
+                    "-deps pointing at a directory containing basisu."
+                )
+            self.basis_u_dir = os.path.dirname(self.basis_u_exe)
 
     def add_texture(self, texture : MediaPath) -> None:
         if texture.relative_media_path_parent not in self.rel_media_dir_to_textures:
@@ -96,12 +127,8 @@ class TextureCompressor:
         if not os.path.isdir(output_dir):
             os.mkdir(output_dir)
         
-        basis_u_exe = os.path.join(self.basis_u_dir, "basisu.exe")
-        if not os.path.isfile(basis_u_exe):
-            basis_u_exe = os.path.join(self.basis_u_dir, "basisu")
-
         for rel_output_dir, textures in self.rel_media_dir_to_textures.items():
-            base_command = [basis_u_exe, "-uastc", "-individual", "-mipmap"]
+            base_command = [self.basis_u_exe, "-uastc", "-individual", "-mipmap"]
 
             if self.use_bases_file_type:
                 base_command.append("-basis")
