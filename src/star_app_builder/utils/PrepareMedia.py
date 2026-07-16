@@ -130,16 +130,9 @@ def ProcessNewFiles(
     current_media_files,
     input_media_dir,
     destination_dir,
-    deps_path: string,
-    use_fastest_encoding: bool,
+    compressor: TextureCompressor,
     progress: tqdm,
 ) -> None:
-    if deps_path is not None:
-        compressor = TextureCompressor(os.path.join(deps_path, "BasisUniversal", "bin"))
-    else:
-        # Use the basisu binary bundled into the wheel at install time.
-        compressor = TextureCompressor(None)
-
     for file in input_media_files:
         full_src_file = os.path.abspath(os.path.join(input_media_dir, os.pardir, file))
 
@@ -183,26 +176,18 @@ def ProcessNewFiles(
 
         progress.update()
 
-    compressor.compress(destination_dir, use_fastest_encoding)
-
 
 def processDir(
     curDir,
     inDir: str,
     outDir: str,
-    depsDir: str,
     inConfigFilePath: str,
     fastestOption: bool,
     progress: tqdm,
     in_immediate: dict,
     out_immediate: dict,
+    compressor: TextureCompressor,
 ):
-    # depsDir is optional; when omitted the basisu binary bundled with the
-    # package is used.
-    full_deps_dir = None
-    if depsDir is not None:
-        full_deps_dir = os.path.abspath(os.path.join(os.getcwd(), depsDir))
-
     currentInDir = inDir
     if curDir is not None:
         currentInDir = os.path.join(inDir, curDir)
@@ -230,12 +215,12 @@ def processDir(
                 subInDir,
                 inDir,
                 outDir,
-                depsDir,
                 inConfigFilePath,
                 fastestOption,
                 progress,
                 in_immediate,
                 out_immediate,
+                compressor,
             )
         else:
             # process file
@@ -252,8 +237,7 @@ def processDir(
         currentMediaFiles,
         inDir,
         outDir,
-        full_deps_dir,
-        fastestOption,
+        compressor,
         progress,
     )
 
@@ -262,7 +246,7 @@ def processDir(
     RemoveEmptyDirectories(currentOutDir)
 
 
-def main(inDir: str, outDir: str, depsDir: str, inConfigFilePath: str, fastestOption):
+def main(inDir: str, outDir: str, inConfigFilePath: str, fastestOption):
     if inDir is None:
         print("Source media directory was not provided")
         exit()
@@ -270,13 +254,7 @@ def main(inDir: str, outDir: str, depsDir: str, inConfigFilePath: str, fastestOp
         print("Build directory was not provided")
         exit()
 
-    if depsDir is not None and not os.path.isdir(depsDir):
-        print(f"The provided deps dir does not exist: {depsDir}")
-        exit()
-    if depsDir is None:
-        print("Using basisu binary bundled with this install.")
-    else:
-        print(f"Using basisu from provided deps dir: {depsDir}")
+    print("Using basisu binary bundled with this install.")
 
     if not os.path.isdir(inDir):
         print(f"The provided input dir does not exist: {inDir}")
@@ -290,7 +268,6 @@ def main(inDir: str, outDir: str, depsDir: str, inConfigFilePath: str, fastestOp
     # relative paths (the CLI forwards user paths verbatim).
     inDir = os.path.abspath(inDir)
     outDir = os.path.abspath(outDir)
-    depsDir = os.path.abspath(depsDir)
 
     compress_speed_fastest = False
     if fastestOption:
@@ -304,18 +281,24 @@ def main(inDir: str, outDir: str, depsDir: str, inConfigFilePath: str, fastestOp
     # Indeterminate progress (no total/percentage): tqdm just counts files as
     # they are preprocessed, avoiding an extra full tree walk to pre-count.
     progress = tqdm(unit=" files")
+    compressor = TextureCompressor()
     processDir(
         None,
         inDir,
         outDir,
-        depsDir,
         inConfigFilePath,
         compress_speed_fastest,
         progress,
         in_immediate,
         out_immediate,
+        compressor,
     )
     progress.close()
+
+    # All textures collected during the walk are compressed in a single pass
+    # here so the progress bar and basisu log cover the whole build at once.
+    compressor.compress(outDir, compress_speed_fastest)
+
     print("Done")
 
 

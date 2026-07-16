@@ -14,13 +14,6 @@ def addMediaPrepArgs(subparser):
         "-in", "--inDir", help="Directory containing files to be processed"
     )
     parserGenerate.add_argument(
-        "-deps",
-        "--depsDir",
-        required=False,
-        help="Optional override: deps directory containing BasisUniversal/bin. "
-        "If omitted, the basisu binary bundled with this package is used.",
-    )
-    parserGenerate.add_argument(
         "-low", "--fastest", action="store_true", help="Enable low quality mode"
     )
     parserGenerate.add_argument(
@@ -56,7 +49,7 @@ def main():
     args = parser.parse_args()
 
     if args.command == "prep-media":
-        mainPrepMedia(args.inDir, args.outDir, args.depsDir, None, args.fastest)
+        mainPrepMedia(args.inDir, args.outDir, None, args.fastest)
     elif args.command == "create-config":
         mainPrepConfig(args.outDir, args.inConfig)
     else:

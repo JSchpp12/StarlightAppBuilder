@@ -3,6 +3,9 @@ import argparse
 import json
 import os
 import sys
+import tempfile
+
+from tqdm import tqdm
 
 from star_app_builder.common import MediaPath
 from star_app_builder.common import get_bundled_basisu_path
@@ -18,16 +21,25 @@ from star_app_builder.common import get_bundled_basisu_path
 # them by default) and were copied, so they are intentionally NOT listed here.
 # Add them here if you want them compressed (basisu supports UASTC HDR).
 _IMAGE_EXTENSIONS = {
-    ".png", ".jpg", ".jpeg", ".bmp", ".gif",
-    ".tif", ".tiff", ".webp", ".tga", ".basis",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".bmp",
+    ".gif",
+    ".tif",
+    ".tiff",
+    ".webp",
+    ".tga",
+    ".basis",
 }
 
 # Per-run cache so the ignore-marker lookup runs at most once per file.
 _should_compress_cache = {}
 
+
 class TextureCompressor:
     @staticmethod
-    def search_for_file(file_path : str, texture_root_dir):
+    def search_for_file(file_path: str, texture_root_dir):
         for ele in os.listdir(texture_root_dir):
             search_ele = os.path.join(texture_root_dir, ele)
             if os.path.isdir(search_ele):
@@ -37,11 +49,11 @@ class TextureCompressor:
             else:
                 if file_path in ele:
                     return search_ele
-        
+
         return None
-    
+
     @staticmethod
-    def search_for_star_ignore(texture_path : MediaPath) -> None:
+    def search_for_star_ignore(texture_path: MediaPath) -> None:
         # Look only in the texture's own directory rather than recursively
         # walking the whole subtree. The `.star_ignore_<stem>` marker is a
         # per-texture flag, so a single directory listing is sufficient and
@@ -52,16 +64,18 @@ class TextureCompressor:
             return None
         candidate = os.path.join(texture_dir, name_to_find)
         return candidate if os.path.isfile(candidate) else None
-    
+
     @staticmethod
-    def get_compressed_file_name(texture_info : MediaPath, use_basis_file_format : bool = False) -> str: 
+    def get_compressed_file_name(
+        texture_info: MediaPath, use_basis_file_format: bool = False
+    ) -> str:
         if use_basis_file_format:
             return texture_info.Get_Output_Stem() + ".basis"
         else:
             return texture_info.Get_Output_Stem() + ".ktx2"
-    
+
     @staticmethod
-    def should_compress(texture : MediaPath) -> bool:
+    def should_compress(texture: MediaPath) -> bool:
         # Memoized per input path: the ignore-marker lookup only needs to run
         # once per file even though should_compress is called multiple times
         # for the same texture during a single run.
@@ -72,12 +86,12 @@ class TextureCompressor:
         result = TextureCompressor.search_for_star_ignore(texture) is None
         _should_compress_cache[key] = result
         return result
-    
+
     @staticmethod
     def batch_list(lst, batch_size):
         """Split list into batches of specified size."""
         for i in range(0, len(lst), batch_size):
-            yield lst[i:i + batch_size]
+            yield lst[i : i + batch_size]
 
     @staticmethod
     def _resolve_basis_u_exe(basis_u_dir):
@@ -92,8 +106,10 @@ class TextureCompressor:
             if os.path.isfile(candidate):
                 return candidate
         return None
-    
-    def __init__(self, basis_u_dir : str = None, use_basis_file_type : bool = False) -> None: 
+
+    def __init__(
+        self, basis_u_dir: str = None, use_basis_file_type: bool = False
+    ) -> None:
         self.rel_media_dir_to_textures = {}
         self.use_bases_file_type = use_basis_file_type
 
@@ -118,63 +134,148 @@ class TextureCompressor:
                 )
             self.basis_u_dir = os.path.dirname(self.basis_u_exe)
 
-    def add_texture(self, texture : MediaPath) -> None:
+    def add_texture(self, texture: MediaPath) -> None:
         if texture.relative_media_path_parent not in self.rel_media_dir_to_textures:
             self.rel_media_dir_to_textures[texture.relative_media_path_parent] = []
-        self.rel_media_dir_to_textures[texture.relative_media_path_parent].append(texture)
+        self.rel_media_dir_to_textures[texture.relative_media_path_parent].append(
+            texture
+        )
 
-    def compress(self, output_dir, use_compress_speed_fastest: bool, batch_size: int = 50) -> None:
+    def compress(
+        self,
+        output_dir,
+        use_compress_speed_fastest: bool,
+        batch_size: int = None,
+        max_threads: int = None,
+        log_path: str = None,
+    ) -> None:
         if not os.path.isdir(output_dir):
             os.mkdir(output_dir)
-        
-        for rel_output_dir, textures in self.rel_media_dir_to_textures.items():
-            base_command = [self.basis_u_exe, "-uastc", "-individual", "-mipmap"]
 
-            if self.use_bases_file_type:
-                base_command.append("-basis")
+        total_files = sum(len(t) for t in self.rel_media_dir_to_textures.values())
+        if total_files == 0:
+            return
 
-            base_command.append("-quality")
-            base_command.append("25" if use_compress_speed_fastest else "100")
+        if batch_size is None:
+            # Default to ~two compression waves per batch: double the hardware
+            # thread count, so -parallel has a little extra work queued per
+            # process and the progress bar advances at a comfortable cadence.
+            # os.cpu_count() can return None on exotic platforms, so fall back
+            # to 1 before doubling.
+            batch_size = (os.cpu_count() or 1) * 4
 
-            full_output = output_dir
-            if rel_output_dir is not None:
-                full_output = os.path.join(output_dir, rel_output_dir)
-            os.makedirs(full_output, exist_ok=True)
+        # basisu is extremely chatty on stdout/stderr. Capture all of it to a
+        # log file so the build console only shows our own progress bar. When
+        # no log_path is supplied, use a temp file and report where it went.
+        if log_path is None:
+            log_fd, log_path = tempfile.mkstemp(
+                suffix='.log', prefix='basisu_compression_'
+            )
+            os.close(log_fd)
+            print(f'BasisU compression output is being logged to: {log_path}')
+        log_handle = open(log_path, 'w', encoding='utf-8', errors='replace')
 
-            base_command += ["-output_path", os.path.abspath(full_output)]
+        progress = tqdm(total=total_files, unit=' textures', desc='Compressing textures')
+        try:
+            for rel_output_dir, textures in self.rel_media_dir_to_textures.items():
+                # -parallel makes basisu compress multiple textures
+                # simultaneously, one per thread, instead of one at a time. With
+                # -individual (the default) each input still gets its own output
+                # file; -parallel just spreads the per-file work across cores,
+                # which is the single biggest speedup available without
+                # changing output quality.
+                base_command = [
+                    self.basis_u_exe,
+                    '-uastc',
+                    '-individual',
+                    '-mipmap',
+                    '-parallel',
+                ]
 
-            # Batch texture files
-            texture_paths = [t.full_input_path for t in textures]
-            for batch in TextureCompressor.batch_list(texture_paths, batch_size):
-                batch_command = base_command.copy()
-                for texture_path in batch:
-                    batch_command += ["-file", texture_path]
+                if max_threads is not None and max_threads > 0:
+                    base_command += ['-max_threads', str(max_threads)]
 
-                try:
-                    subprocess.run(
-                        batch_command,
-                        cwd=self.basis_u_dir,
-                        check=True,
-                        text=True
+                if self.use_bases_file_type:
+                    base_command.append('-basis')
+
+                base_command.append('-quality')
+                base_command.append('25' if use_compress_speed_fastest else '100')
+
+                full_output = output_dir
+                if rel_output_dir is not None:
+                    full_output = os.path.join(output_dir, rel_output_dir)
+                os.makedirs(full_output, exist_ok=True)
+
+                base_command += ['-output_path', os.path.abspath(full_output)]
+
+                texture_paths = [t.full_input_path for t in textures]
+                if not texture_paths:
+                    continue
+
+                # Hand basisu each batch via a listing file (@path): basisu reads one
+                # filename per line, which sidesteps the Windows command-line
+                # length limit. Each batch holds ~one wave of inputs (by default
+                # the hardware thread count), so -parallel saturates the cores
+                # for that batch and the progress bar ticks once per wave. A
+                # caller can still pass an explicit batch_size to chunk finer or
+                # coarser.
+                chunks = list(TextureCompressor.batch_list(texture_paths, batch_size))
+
+                for batch in chunks:
+                    if not batch:
+                        continue
+                    listing_fd, listing_path = tempfile.mkstemp(
+                        suffix='.txt', prefix='basisu_inputs_', text=True
                     )
-                except subprocess.CalledProcessError as e:
-                    print("Error occurred during texture compression:")
-                    print(e)
-                    raise Exception("Failed to compress textures")
-            
-def Is_File_A_Image(media_file : str) -> bool:
+                    try:
+                        with os.fdopen(listing_fd, 'w', encoding='utf-8') as lf:
+                            for p in batch:
+                                lf.write(p)
+                                lf.write('\n')
+                        batch_command = base_command + ['@' + listing_path]
+                        subprocess.run(
+                            batch_command,
+                            cwd=self.basis_u_dir,
+                            check=True,
+                            text=True,
+                            stdout=log_handle,
+                            stderr=subprocess.STDOUT,
+                        )
+                    except subprocess.CalledProcessError as e:
+                        print('Error occurred during texture compression:')
+                        print(e)
+                        print(f'See basisu log for details: {log_path}')
+                        raise Exception('Failed to compress textures')
+                    finally:
+                        try:
+                            os.remove(listing_path)
+                        except OSError:
+                            pass
+                    # We don't parse basisu's per-file progress; just advance
+                    # the bar by the size of the batch we just handed off.
+                    progress.update(len(batch))
+        finally:
+            progress.close()
+            log_handle.close()
+
+
+def Is_File_A_Image(media_file: str) -> bool:
     ext = os.path.splitext(media_file)[1].lower()
     return ext in _IMAGE_EXTENSIONS
 
-def Generate_Media_File_For_Image(media_file : str, subDir : str) -> MediaPath:
+
+def Generate_Media_File_For_Image(media_file: str, subDir: str) -> MediaPath:
     media_file_path = MediaPath(media_file, subDir)
 
-    if (TextureCompressor.should_compress(media_file_path)):
-        media_file_path.output_file_base = TextureCompressor.get_compressed_file_name(media_file_path)
+    if TextureCompressor.should_compress(media_file_path):
+        media_file_path.output_file_base = TextureCompressor.get_compressed_file_name(
+            media_file_path
+        )
     return media_file_path
 
-def Create_Media_Path(full_media_path : str, subDir : str) -> MediaPath:
-    if (Is_File_A_Image(full_media_path)):
+
+def Create_Media_Path(full_media_path: str, subDir: str) -> MediaPath:
+    if Is_File_A_Image(full_media_path):
         return Generate_Media_File_For_Image(full_media_path, subDir)
     else:
         return MediaPath(full_media_path, subDir)
