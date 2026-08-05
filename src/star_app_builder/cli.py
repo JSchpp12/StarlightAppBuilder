@@ -22,6 +22,25 @@ def addMediaPrepArgs(subparser):
         action="store_true",
         help="Trigger create config file",
     )
+    parserGenerate.add_argument(
+        "-batch",
+        "--batchSize",
+        type=int,
+        default=None,
+        help="Number of textures handed to basisu per batch. Defaults to "
+        "4x the CPU count. Lower this (e.g. 20) when very large textures "
+        "cause a batch to hang with low CPU usage.",
+    )
+    parserGenerate.add_argument(
+        "-q",
+        "--quality",
+        choices=["lossless", "high", "medium", "low"],
+        default=None,
+        help="Compression quality preset: lossless (100), high (90), medium "
+        "(75), or low (50). If omitted, quality defaults to 100, or 25 when "
+        "-low/--fastest is set. An explicit -q value takes precedence over "
+        "--fastest.",
+    )
 
 
 def addConfigPrepArgs(subparser):
@@ -49,7 +68,9 @@ def main():
     args = parser.parse_args()
 
     if args.command == "prep-media":
-        mainPrepMedia(args.inDir, args.outDir, None, args.fastest)
+        mainPrepMedia(
+            args.inDir, args.outDir, None, args.fastest, args.batchSize, args.quality
+        )
     elif args.command == "create-config":
         mainPrepConfig(args.outDir, args.inConfig)
     else:

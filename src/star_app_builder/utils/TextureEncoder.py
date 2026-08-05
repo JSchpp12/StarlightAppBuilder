@@ -33,6 +33,19 @@ _IMAGE_EXTENSIONS = {
     ".basis",
 }
 
+# Named quality presets for the -quality CLI flag. basisu's -quality ranges
+# from 1 to 100; these map the user-facing levels to encoder values. When no
+# preset is requested, compress() falls back to the legacy behaviour: 25 for
+# the --fastest speed mode, otherwise 100 (max). "lossless" is an explicit
+# name for that max (100) so callers can state their intent without relying on
+# the implicit default.
+_QUALITY_PRESETS = {
+    "lossless": 100,
+    "high": 90,
+    "medium": 75,
+    "low": 50,
+}
+
 # Per-run cache so the ignore-marker lookup runs at most once per file.
 _should_compress_cache = {}
 
@@ -146,6 +159,7 @@ class TextureCompressor:
         output_dir,
         use_compress_speed_fastest: bool,
         batch_size: int = None,
+        quality: str = None,
         max_threads: int = None,
         log_path: str = None,
     ) -> None:
@@ -192,8 +206,17 @@ class TextureCompressor:
                 if self.use_bases_file_type:
                     base_command.append('-basis')
 
+                # Resolve the basisu -quality value. An explicit --quality
+                # preset (high/medium/low) wins; otherwise fall back to the
+                # legacy --fastest speed mode (25) or the default max (100).
+                if quality is not None:
+                    quality_value = _QUALITY_PRESETS[quality]
+                elif use_compress_speed_fastest:
+                    quality_value = 25
+                else:
+                    quality_value = 100
                 base_command.append('-quality')
-                base_command.append('25' if use_compress_speed_fastest else '100')
+                base_command.append(str(quality_value))
 
                 full_output = output_dir
                 if rel_output_dir is not None:

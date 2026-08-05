@@ -246,7 +246,7 @@ def processDir(
     RemoveEmptyDirectories(currentOutDir)
 
 
-def main(inDir: str, outDir: str, inConfigFilePath: str, fastestOption):
+def main(inDir: str, outDir: str, inConfigFilePath: str, fastestOption, batch_size: int = None, quality: str = None):
     if inDir is None:
         print("Source media directory was not provided")
         exit()
@@ -297,7 +297,9 @@ def main(inDir: str, outDir: str, inConfigFilePath: str, fastestOption):
 
     # All textures collected during the walk are compressed in a single pass
     # here so the progress bar and basisu log cover the whole build at once.
-    compressor.compress(outDir, compress_speed_fastest)
+    # batch_size is None unless the caller (e.g. the CLI -batch flag) supplied
+    # an explicit value; None lets TextureCompressor pick its cpu-based default.
+    compressor.compress(outDir, compress_speed_fastest, batch_size=batch_size, quality=quality)
 
     print("Done")
 
