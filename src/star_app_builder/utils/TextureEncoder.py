@@ -164,14 +164,8 @@ class TextureCompressor:
             # to 1 before doubling.
             batch_size = (os.cpu_count() or 1) * 4
 
-        # basisu is extremely chatty on stdout/stderr. Capture all of it to a
-        # log file so the build console only shows our own progress bar. When
-        # no log_path is supplied, use a temp file and report where it went.
         if log_path is None:
-            log_fd, log_path = tempfile.mkstemp(
-                suffix='.log', prefix='basisu_compression_'
-            )
-            os.close(log_fd)
+            log_path = os.path.join(os.getcwd(), 'compression_log.txt')
             print(f'BasisU compression output is being logged to: {log_path}')
         log_handle = open(log_path, 'w', encoding='utf-8', errors='replace')
 
