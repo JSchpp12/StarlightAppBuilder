@@ -171,11 +171,6 @@ class TextureCompressor:
             return
 
         if batch_size is None:
-            # Default to ~two compression waves per batch: double the hardware
-            # thread count, so -parallel has a little extra work queued per
-            # process and the progress bar advances at a comfortable cadence.
-            # os.cpu_count() can return None on exotic platforms, so fall back
-            # to 1 before doubling.
             batch_size = (os.cpu_count() or 1) * 4
 
         if log_path is None:

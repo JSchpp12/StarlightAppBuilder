@@ -246,7 +246,7 @@ def processDir(
     RemoveEmptyDirectories(currentOutDir)
 
 
-def main(inDir: str, outDir: str, inConfigFilePath: str, fastestOption, batch_size: int = None, quality: str = None):
+def main(inDir: str, outDir: str, inConfigFilePath: str, fastestOption, batch_size: int = None, quality: str = None, max_threads: int = None):
     if inDir is None:
         print("Source media directory was not provided")
         exit()
@@ -299,7 +299,7 @@ def main(inDir: str, outDir: str, inConfigFilePath: str, fastestOption, batch_si
     # here so the progress bar and basisu log cover the whole build at once.
     # batch_size is None unless the caller (e.g. the CLI -batch flag) supplied
     # an explicit value; None lets TextureCompressor pick its cpu-based default.
-    compressor.compress(outDir, compress_speed_fastest, batch_size=batch_size, quality=quality)
+    compressor.compress(outDir, compress_speed_fastest, batch_size=batch_size, quality=quality, max_threads=max_threads)
 
     print("Done")
 

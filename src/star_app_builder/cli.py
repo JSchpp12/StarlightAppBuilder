@@ -41,6 +41,17 @@ def addMediaPrepArgs(subparser):
         "-low/--fastest is set. An explicit -q value takes precedence over "
         "--fastest.",
     )
+    parserGenerate.add_argument(
+        "-mt",
+        "--maxThreads",
+        type=int,
+        default=None,
+        help="Cap the number of threads basisu's -parallel uses per batch "
+        "(maps to basisu -max_threads). Default is the full hardware thread "
+        "count. Lower this (e.g. half your cores) when very large UASTC "
+        "textures cause high memory use or swapping, since -parallel keeps "
+        "one image resident per thread.",
+    )
 
 
 def addConfigPrepArgs(subparser):
@@ -69,7 +80,7 @@ def main():
 
     if args.command == "prep-media":
         mainPrepMedia(
-            args.inDir, args.outDir, None, args.fastest, args.batchSize, args.quality
+            args.inDir, args.outDir, None, args.fastest, args.batchSize, args.quality, args.maxThreads
         )
     elif args.command == "create-config":
         mainPrepConfig(args.outDir, args.inConfig)
