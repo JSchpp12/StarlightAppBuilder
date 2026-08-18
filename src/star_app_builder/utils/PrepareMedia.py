@@ -173,8 +173,37 @@ def ProcessNewFiles(
             and not filecmp.cmp(full_src_file, destination_comparison, shallow=False)
         ):
             CopyFile(destination_dir, media_file_path)
+        elif (
+            Is_File_A_Image(full_src_file)
+            and TextureCompressor.should_compress(media_file_path)
+            and _source_newer_than_output(full_src_file, destination_comparison)
+        ):
+            # The compressed output already exists, but the source texture
+            # has changed since it was last encoded (its mtime is newer than
+            # the compressed file's). A byte-for-byte filecmp is meaningless
+            # here (.png vs .ktx2/.basis), so the modification time is the
+            # signal that the input no longer matches the output. Queue the
+            # texture to be re-compressed; basisu overwrites the existing
+            # output file in the final compress() pass.
+            compressor.add_texture(media_file_path)
 
         progress.update()
+
+
+def _source_newer_than_output(source_path: str, output_path: str) -> bool:
+    """Return True when ``source_path`` was modified after ``output_path``.
+
+    Used to decide whether a compressible texture needs re-encoding: a
+    content comparison is impossible across formats (.png -> .ktx2), so the
+    source's mtime is the change signal. Missing output or a clock skew
+    where the output is at least as new as the source means no re-compress.
+    """
+    try:
+        return os.path.getmtime(source_path) > os.path.getmtime(output_path)
+    except OSError:
+        # Output file missing (e.g. deleted out of band) or unreadable; let
+        # the caller fall back to other handling rather than crashing.
+        return False
 
 
 def processDir(
