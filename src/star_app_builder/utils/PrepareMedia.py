@@ -10,6 +10,8 @@ from tqdm import tqdm
 from .TextureEncoder import TextureCompressor
 from .TextureEncoder import Is_File_A_Image
 from .TextureEncoder import Create_Media_Path
+from .TextureEncoder import STAGING_DIR_NAME
+from .TextureEncoder import is_output_complete
 from star_app_builder.common import MediaPath
 from .PrepareEngineConfig import main as mainPrepConfig
 
@@ -75,6 +77,11 @@ def BuildDirectoryIndex(root: str):
         return immediate, all_files
 
     for dp, dirs, files in os.walk(root):
+        # Never descend into the basisu staging tree: it holds partial
+        # files from interrupted runs and must not be indexed as real
+        # outputs (the staging dir is created under the output dir by
+        # TextureCompressor.compress and is removed on a clean run).
+        dirs[:] = [d for d in dirs if d != STAGING_DIR_NAME]
         dp_abs = os.path.abspath(dp)
         file_set = set()
         for f in files:
@@ -164,6 +171,25 @@ def ProcessNewFiles(
                 compressor.add_texture(media_file_path)
             else:
                 CopyFile(destination_dir, media_file_path)
+        elif (
+            Is_File_A_Image(full_src_file)
+            and TextureCompressor.should_compress(media_file_path)
+            and not is_output_complete(destination_comparison, media_file_path)
+        ):
+            # The compressed output exists but is structurally incomplete -
+            # the signature of a run interrupted mid-compression (before
+            # atomic staging existed, or via a path that bypassed it).
+            # Remove the partial file and re-queue it so basisu writes it
+            # fresh into staging. Fail-safe: any header/IO error in the
+            # verifier is treated as incomplete, so we re-compress rather
+            # than ship a possibly-truncated texture.
+            try:
+                os.remove(destination_comparison)
+            except OSError as e:
+                print(f"Failed to remove incomplete compressed output.")
+                print(f"File: {destination_comparison}")
+                print(e)
+            compressor.add_texture(media_file_path)
         elif (
             not Is_File_A_Image(full_src_file)
             and not filecmp.cmp(full_src_file, destination_comparison, shallow=False)
@@ -275,7 +301,15 @@ def processDir(
     RemoveEmptyDirectories(currentOutDir)
 
 
-def main(inDir: str, outDir: str, inConfigFilePath: str, fastestOption, batch_size: int = None, quality: str = None, max_threads: int = None):
+def main(
+    inDir: str,
+    outDir: str,
+    inConfigFilePath: str,
+    fastestOption,
+    batch_size: int = None,
+    quality: str = None,
+    max_threads: int = None,
+):
     if inDir is None:
         print("Source media directory was not provided")
         exit()
@@ -328,7 +362,13 @@ def main(inDir: str, outDir: str, inConfigFilePath: str, fastestOption, batch_si
     # here so the progress bar and basisu log cover the whole build at once.
     # batch_size is None unless the caller (e.g. the CLI -batch flag) supplied
     # an explicit value; None lets TextureCompressor pick its cpu-based default.
-    compressor.compress(outDir, compress_speed_fastest, batch_size=batch_size, quality=quality, max_threads=max_threads)
+    compressor.compress(
+        outDir,
+        compress_speed_fastest,
+        batch_size=batch_size,
+        quality=quality,
+        max_threads=max_threads,
+    )
 
     print("Done")
 
