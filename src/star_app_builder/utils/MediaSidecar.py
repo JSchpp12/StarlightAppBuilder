@@ -1,17 +1,25 @@
 """Sidecar JSON metadata for media files processed by prep-media.
 
-Every media file in the source tree may sit next to a ``<stem>.json`` sidecar
-that describes where the file came from and how it should be prepped::
+A sidecar sits next to the media file it describes and adds an explicit
+``.star.json`` suffix, so it cannot be confused with real ``.json`` data files
+in the media tree::
+
+    media/logo.png
+    media/logo.png.star.json
+    media/settings.json          <- ordinary JSON data, copied as media
+
+A sidecar looks like::
 
     {
       "type": "png",
-      "source": "skybox.png",
+      "source": "logo.png",
       "prep": "compress"
     }
 
-``source`` may be either a local filename in the same directory or an
-``http``/``https`` URL, in which case the file is downloaded next to the
-sidecar (once; later runs reuse the cached file). ``prep`` replaces the old
+``source`` is provenance: either the local filename the media originally came
+from (normally the same as the sidecar's media filename) or an ``http``/
+``https`` URL, in which case the file is downloaded to the sidecar's media
+filename (once; later runs reuse the cached file). ``prep`` replaces the old
 ``.star_ignore_<stem>`` marker mechanism.
 
 This module deliberately has no dependency on ``TextureEncoder`` or
@@ -30,6 +38,11 @@ import urllib.request
 
 PREP_COMPRESS = "compress"
 PREP_COPY = "copy"
+
+# Reserved suffix that distinguishes a sidecar from an ordinary .json file.
+# The sidecar's media filename is its basename with this suffix removed:
+# "logo.png.star.json" describes "logo.png".
+SIDECAR_SUFFIX = ".star.json"
 
 _KNOWN_KEYS = {"type", "source", "prep"}
 
@@ -71,8 +84,23 @@ def Get_Prep(abs_media_path: str) -> str:
 
 
 def Is_Sidecar_File(path: str) -> bool:
-    """True for ``*.json`` files (case-insensitive). Sidecars never leave input."""
-    return os.path.basename(path).lower().endswith(".json")
+    """True for sidecars: ``<media filename>.star.json`` (case-insensitive).
+
+    Other ``.json`` files are ordinary media and are copied as-is.
+    """
+    base = os.path.basename(path)
+    return base.lower().endswith(SIDECAR_SUFFIX) and len(base) > len(SIDECAR_SUFFIX)
+
+
+def Get_Media_Name_From_Sidecar(sidecar_path: str) -> str:
+    """The media filename a sidecar describes (basename minus the suffix)."""
+    base = os.path.basename(sidecar_path)
+    return base[: -len(SIDECAR_SUFFIX)]
+
+
+def Get_Sidecar_Path(media_path: str) -> str:
+    """The sidecar path for a media file (adds ``.star.json``)."""
+    return media_path + SIDECAR_SUFFIX
 
 
 def Is_Hidden_File(path: str) -> bool:
@@ -120,12 +148,14 @@ def _Is_Valid_Local_Source(source: str) -> bool:
 def Validate_Sidecar(data, sidecar_path: str):
     """Normalize a parsed sidecar dict, or return None if unusable.
 
-    Applies the documented defaults (``source`` -> ``<stem>.<type>``,
-    ``prep`` -> compress), warns on unknown keys for forward compatibility, and
-    rejects sidecars that could escape their directory or use a non-http(s)
-    scheme.
+    The media filename is taken from the sidecar's own name (the basename minus
+    ``.star.json``). Applies the documented defaults (``source`` -> the media
+    filename, ``prep`` -> compress), warns on unknown keys for forward
+    compatibility, and rejects sidecars that could escape their directory or
+    use a non-http(s) scheme.
     """
     name = os.path.basename(sidecar_path)
+    media_name = Get_Media_Name_From_Sidecar(sidecar_path)
     if not isinstance(data, dict):
         print(f"Warning: sidecar {name} must contain a JSON object; using defaults.")
         return None
@@ -134,18 +164,20 @@ def Validate_Sidecar(data, sidecar_path: str):
         if key not in _KNOWN_KEYS:
             print(f"Warning: sidecar {name} has unknown key '{key}'; ignoring it.")
 
-    stem = os.path.splitext(name)[0]
+    media_ext = os.path.splitext(media_name)[1].lstrip(".").lower()
 
     raw_type = data.get("type")
-    media_type = None
+    media_type = media_ext
     if raw_type is not None:
-        if not isinstance(raw_type, str) or not raw_type.strip():
-            print(f"Warning: sidecar {name} has an invalid 'type'; using defaults.")
-            return None
-        media_type = raw_type.strip().lstrip(".").lower()
-        if not media_type:
-            print(f"Warning: sidecar {name} has an empty 'type'; using defaults.")
-            return None
+        if not isinstance(raw_type, str):
+            print(
+                f"Warning: sidecar {name} has a non-string 'type'; using the "
+                f"media filename's extension."
+            )
+        else:
+            stripped = raw_type.strip().lstrip(".").lower()
+            if stripped:
+                media_type = stripped
 
     raw_source = data.get("source")
     source = None
@@ -179,23 +211,8 @@ def Validate_Sidecar(data, sidecar_path: str):
             )
             return None
 
-    if media_type is None:
-        # Infer from the source's extension when 'type' is omitted.
-        source_for_ext = source or ""
-        if Is_URL_Source(source_for_ext):
-            source_for_ext = urllib.parse.urlsplit(source_for_ext).path
-        inferred = os.path.splitext(os.path.basename(source_for_ext))[1].lstrip(".")
-        if inferred:
-            media_type = inferred.lower()
-        else:
-            print(
-                f"Warning: sidecar {name} has no 'type' and none can be inferred; "
-                f"ignoring sidecar."
-            )
-            return None
-
     if source is None:
-        source = f"{stem}.{media_type}"
+        source = media_name
 
     raw_prep = data.get("prep")
     if raw_prep is None:

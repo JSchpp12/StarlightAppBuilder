@@ -52,15 +52,19 @@ def test_auto_generates_sidecars_for_every_media_file(tmp_path):
 
     pm.Resolve_Sidecars(in_immediate)
 
-    plain_sidecar = json.loads((tmp_path / "plain.json").read_text("utf-8"))
+    plain_sidecar = json.loads(
+        (tmp_path / "plain.png.star.json").read_text("utf-8")
+    )
     assert plain_sidecar == {
         "type": "png",
         "source": "plain.png",
         "prep": ms.PREP_COMPRESS,
     }
-    note_sidecar = json.loads((tmp_path / "note.json").read_text("utf-8"))
+    note_sidecar = json.loads(
+        (tmp_path / "note.txt.star.json").read_text("utf-8")
+    )
     assert note_sidecar["prep"] == ms.PREP_COPY
-    assert (tmp_path / "nested" / "sub.json").is_file()
+    assert (tmp_path / "nested" / "sub.png.star.json").is_file()
 
     assert ms.Get_Prep(str(tmp_path / "plain.png")) == ms.PREP_COMPRESS
     assert ms.Get_Prep(str(tmp_path / "note.txt")) == ms.PREP_COPY
@@ -69,7 +73,7 @@ def test_auto_generates_sidecars_for_every_media_file(tmp_path):
 
 def test_existing_explicit_sidecar_controls_prep_and_is_not_overwritten(tmp_path):
     _write(tmp_path / "skybox.png")
-    sidecar = tmp_path / "skybox.json"
+    sidecar = tmp_path / "skybox.png.star.json"
     _write_sidecar(
         sidecar,
         {"type": "png", "source": "skybox.png", "prep": "copy"},
@@ -82,20 +86,37 @@ def test_existing_explicit_sidecar_controls_prep_and_is_not_overwritten(tmp_path
     assert ms.Get_Prep(str(tmp_path / "skybox.png")) == ms.PREP_COPY
 
 
+def test_plain_json_data_file_is_media_not_a_sidecar(tmp_path):
+    data_file = tmp_path / "settings.json"
+    data_file.write_text('{"volume": 0.5}', encoding="utf-8")
+
+    pm.Resolve_Sidecars(_index(tmp_path))
+
+    # It gets its own sidecar and is routed as ordinary copy-media.
+    sidecar = json.loads(
+        (tmp_path / "settings.json.star.json").read_text("utf-8")
+    )
+    assert sidecar == {
+        "type": "json",
+        "source": "settings.json",
+        "prep": ms.PREP_COPY,
+    }
+    assert ms.Get_Prep(str(data_file)) == ms.PREP_COPY
+
+
 def test_hidden_files_are_ignored_and_get_no_sidecar(tmp_path):
     _write(tmp_path / ".hidden.txt")
 
     pm.Resolve_Sidecars(_index(tmp_path))
 
-    assert not (tmp_path / ".hidden.json").exists()
-    assert list(tmp_path.iterdir()) == [tmp_path / ".hidden.txt"]
+    assert [p.name for p in sorted(tmp_path.iterdir())] == [".hidden.txt"]
 
 
 # --- URL sources -------------------------------------------------------------
 
 
-def test_url_source_downloads_once_and_joins_index(tmp_path, monkeypatch, capsys):
-    sidecar = tmp_path / "skybox.json"
+def test_url_source_downloads_once_and_joins_index(tmp_path, monkeypatch):
+    sidecar = tmp_path / "skybox.mp4.star.json"
     _write_sidecar(
         sidecar,
         {
@@ -128,9 +149,27 @@ def test_url_source_downloads_once_and_joins_index(tmp_path, monkeypatch, capsys
     assert calls == ["https://cdn.example.com/assets/sky.mp4"]
 
 
-def test_failed_download_skips_file_and_counts_failure(tmp_path, monkeypatch, capsys):
+def test_url_sidecar_type_defaults_from_its_media_filename(tmp_path, monkeypatch):
     _write_sidecar(
-        tmp_path / "skybox.json",
+        tmp_path / "sky.webp.star.json",
+        {"source": "https://cdn.example.com/asset?id=7"},
+    )
+
+    monkeypatch.setattr(
+        ms.urllib.request,
+        "urlopen",
+        lambda req, timeout=None: _FakeResponse(b"webp-bytes"),
+    )
+
+    pm.Resolve_Sidecars(_index(tmp_path))
+
+    assert (tmp_path / "sky.webp").read_bytes() == b"webp-bytes"
+    assert ms.Get_Prep(str(tmp_path / "sky.webp")) == ms.PREP_COMPRESS
+
+
+def test_failed_download_skips_file_and_counts_failure(tmp_path, monkeypatch):
+    _write_sidecar(
+        tmp_path / "skybox.png.star.json",
         {
             "type": "png",
             "source": "https://cdn.example.com/sky.png",
@@ -148,7 +187,7 @@ def test_failed_download_skips_file_and_counts_failure(tmp_path, monkeypatch, ca
     assert not (tmp_path / "sky.png").exists()
     assert ms.Get_Download_Failure_Count() == 1
     # No leftover temp file from the aborted download.
-    assert [p.name for p in tmp_path.iterdir()] == ["skybox.json"]
+    assert [p.name for p in tmp_path.iterdir()] == ["skybox.png.star.json"]
 
 
 # --- routing rules -----------------------------------------------------------
@@ -157,21 +196,20 @@ def test_failed_download_skips_file_and_counts_failure(tmp_path, monkeypatch, ca
 def test_compress_on_non_image_downgrades_to_copy(tmp_path, capsys):
     _write(tmp_path / "video.mp4")
     _write_sidecar(
-        tmp_path / "video.json",
+        tmp_path / "video.mp4.star.json",
         {"type": "mp4", "source": "video.mp4", "prep": "compress"},
     )
 
     pm.Resolve_Sidecars(_index(tmp_path))
 
     assert ms.Get_Prep(str(tmp_path / "video.mp4")) == ms.PREP_COPY
-    out = capsys.readouterr().out
-    assert "non-image" in out
+    assert "non-image" in capsys.readouterr().out
 
 
 def test_type_mismatch_uses_actual_extension(tmp_path, capsys):
     _write(tmp_path / "badge.png")
     _write_sidecar(
-        tmp_path / "badge.json",
+        tmp_path / "badge.png.star.json",
         {"type": "jpg", "source": "badge.png", "prep": "copy"},
     )
 
@@ -181,64 +219,46 @@ def test_type_mismatch_uses_actual_extension(tmp_path, capsys):
     assert "using the actual extension" in capsys.readouterr().out
 
 
-def test_local_source_claims_a_different_file(tmp_path):
+def test_local_source_is_provenance_not_a_redirect(tmp_path):
     _write(tmp_path / "bar.png")
     _write_sidecar(
-        tmp_path / "foo.json",
-        {"type": "png", "source": "bar.png", "prep": "copy"},
+        tmp_path / "bar.png.star.json",
+        {"type": "png", "source": "foo.png", "prep": "copy"},
     )
 
     pm.Resolve_Sidecars(_index(tmp_path))
 
+    # The sidecar's filename decides the media; source is just provenance.
     assert ms.Get_Prep(str(tmp_path / "bar.png")) == ms.PREP_COPY
-    # bar.png is claimed, so no auto-generated bar.json.
-    assert not (tmp_path / "bar.json").exists()
     assert not (tmp_path / "foo.png").exists()
 
 
-def test_missing_local_source_warns_and_is_skipped(tmp_path, capsys):
+def test_sidecar_describing_missing_media_warns_and_is_skipped(tmp_path, capsys):
     _write_sidecar(
-        tmp_path / "ghost.json",
+        tmp_path / "ghost.png.star.json",
         {"type": "png", "source": "ghost.png", "prep": "copy"},
     )
 
     pm.Resolve_Sidecars(_index(tmp_path))
 
-    assert "source missing" in capsys.readouterr().out
+    assert "describes missing media" in capsys.readouterr().out
 
 
-def test_duplicate_target_claim_first_sorted_wins(tmp_path, capsys):
-    _write(tmp_path / "bar.png")
-    _write_sidecar(
-        tmp_path / "a.json",
-        {"type": "png", "source": "bar.png", "prep": "copy"},
-    )
-    _write_sidecar(
-        tmp_path / "b.json",
-        {"type": "png", "source": "bar.png", "prep": "compress"},
-    )
-
-    pm.Resolve_Sidecars(_index(tmp_path))
-
-    assert ms.Get_Prep(str(tmp_path / "bar.png")) == ms.PREP_COPY
-    assert "multiple sidecars claim" in capsys.readouterr().out
-
-
-def test_stem_collision_writes_one_sidecar_but_routes_both(tmp_path, capsys):
+def test_same_stem_different_extensions_get_distinct_sidecars(tmp_path):
     _write(tmp_path / "skybox.png")
     _write(tmp_path / "skybox.mp4")
 
     pm.Resolve_Sidecars(_index(tmp_path))
 
-    assert (tmp_path / "skybox.json").is_file()
+    assert (tmp_path / "skybox.png.star.json").is_file()
+    assert (tmp_path / "skybox.mp4.star.json").is_file()
     assert ms.Get_Prep(str(tmp_path / "skybox.png")) == ms.PREP_COMPRESS
     assert ms.Get_Prep(str(tmp_path / "skybox.mp4")) == ms.PREP_COPY
-    assert "shares a stem" in capsys.readouterr().out
 
 
 def test_malformed_sidecar_falls_back_to_defaults_and_is_preserved(tmp_path, capsys):
     _write(tmp_path / "badge.png")
-    sidecar = tmp_path / "badge.json"
+    sidecar = tmp_path / "badge.png.star.json"
     sidecar.write_text("{", encoding="utf-8")
     before = sidecar.read_bytes()
 
@@ -272,13 +292,15 @@ class _NoopCompressor:
         pass
 
 
-def _copy_sidecar(directory, name, media_name):
+def _copy_sidecar(directory, media_name):
     payload = {
         "type": os.path.splitext(media_name)[1].lstrip(".").lower(),
         "source": media_name,
         "prep": "copy",
     }
-    (directory / name).write_text(json.dumps(payload), encoding="utf-8")
+    (directory / (media_name + ms.SIDECAR_SUFFIX)).write_text(
+        json.dumps(payload), encoding="utf-8"
+    )
 
 
 def test_pipeline_copies_media_and_never_emits_sidecars(tmp_path, monkeypatch):
@@ -288,12 +310,14 @@ def test_pipeline_copies_media_and_never_emits_sidecars(tmp_path, monkeypatch):
     out_dir.mkdir()
 
     _write(in_dir / "plain.png", b"png-bytes")
-    _copy_sidecar(in_dir, "plain.json", "plain.png")
+    _copy_sidecar(in_dir, "plain.png")
     _write(in_dir / "note.txt", b"note-bytes")
-    _copy_sidecar(in_dir, "note.json", "note.txt")
+    _copy_sidecar(in_dir, "note.txt")
+    # A real data JSON with no sidecar: it must be copied, not swallowed.
+    (in_dir / "settings.json").write_text('{"volume": 0.5}', encoding="utf-8")
     _write(in_dir / ".hidden.txt", b"secret")
     _write(in_dir / "nested" / "sub.png", b"sub-bytes")
-    _copy_sidecar(in_dir / "nested", "sub.json", "sub.png")
+    _copy_sidecar(in_dir / "nested", "sub.png")
 
     monkeypatch.setattr(pm, "TextureCompressor", _NoopCompressor)
 
@@ -301,12 +325,17 @@ def test_pipeline_copies_media_and_never_emits_sidecars(tmp_path, monkeypatch):
 
     assert (out_dir / "plain.png").read_bytes() == b"png-bytes"
     assert (out_dir / "note.txt").read_bytes() == b"note-bytes"
+    assert (out_dir / "settings.json").read_text(encoding="utf-8") == (
+        '{"volume": 0.5}'
+    )
     assert (out_dir / "nested" / "sub.png").read_bytes() == b"sub-bytes"
     assert not (out_dir / ".hidden.txt").exists()
 
     for _, _, files in os.walk(out_dir):
         for f in files:
-            assert not f.endswith(".json"), f"sidecar leaked into output: {f}"
+            assert not ms.Is_Sidecar_File(f), (
+                f"sidecar leaked into output: {f}"
+            )
             assert not f.startswith("."), f"dotfile leaked into output: {f}"
 
     # A second run is a no-op: same output tree, inputs untouched.

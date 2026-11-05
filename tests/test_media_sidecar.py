@@ -15,7 +15,7 @@ def _clean_registry():
     ms.Reset_Registry()
 
 
-def _validate(tmp_path, payload, name="skybox.json"):
+def _validate(tmp_path, payload, name="skybox.png.star.json"):
     sidecar = tmp_path / name
     sidecar.write_text(json.dumps(payload), encoding="utf-8")
     return ms.Validate_Sidecar(ms.Load_Sidecar(str(sidecar)), str(sidecar))
@@ -25,11 +25,20 @@ def _validate(tmp_path, payload, name="skybox.json"):
 
 
 def test_is_sidecar_file():
-    assert ms.Is_Sidecar_File("skybox.json")
-    assert ms.Is_Sidecar_File("SKYBOX.JSON")
-    assert ms.Is_Sidecar_File("sub/dir/skybox.json")
+    assert ms.Is_Sidecar_File("skybox.png.star.json")
+    assert ms.Is_Sidecar_File("SKYBOX.PNG.STAR.JSON")
+    assert ms.Is_Sidecar_File("sub/dir/skybox.png.star.json")
+    assert not ms.Is_Sidecar_File("skybox.json")
+    assert not ms.Is_Sidecar_File("settings.json")
+    assert not ms.Is_Sidecar_File(".star.json")
     assert not ms.Is_Sidecar_File("skybox.png")
-    assert not ms.Is_Sidecar_File("skybox.json.bak")
+
+
+def test_media_name_and_sidecar_path_round_trip():
+    sidecar = os.path.join("media", "skybox.png.star.json")
+    assert ms.Get_Media_Name_From_Sidecar(sidecar) == "skybox.png"
+    media = os.path.join("media", "skybox.png")
+    assert ms.Get_Sidecar_Path(media) == sidecar
 
 
 def test_is_hidden_file():
@@ -47,22 +56,35 @@ def test_valid_sidecar_normalizes_type(tmp_path):
 
 
 def test_defaults_apply_when_fields_omitted(tmp_path):
-    data = _validate(tmp_path, {"type": "png"})
+    data = _validate(tmp_path, {})
     assert data == {"type": "png", "source": "skybox.png", "prep": "compress"}
 
 
-def test_type_inferred_from_source(tmp_path):
+def test_type_comes_from_sidecar_media_filename(tmp_path):
+    # The sidecar names the media file; 'source' is provenance and does not
+    # change what is being described.
     data = _validate(tmp_path, {"source": "other.JPG"})
-    assert data == {"type": "jpg", "source": "other.JPG", "prep": "compress"}
+    assert data == {"type": "png", "source": "other.JPG", "prep": "compress"}
 
 
-def test_type_inferred_from_url_path(tmp_path):
-    data = _validate(tmp_path, {"source": "https://cdn.example.com/a/b/sky.webp"})
+def test_explicit_type_is_lowercased_and_dot_stripped(tmp_path):
+    data = _validate(tmp_path, {"type": ".WebP"})
     assert data["type"] == "webp"
 
 
+def test_extensionless_media_name_is_allowed(tmp_path):
+    data = _validate(tmp_path, {"prep": "copy"}, name="README.star.json")
+    assert data == {"type": "", "source": "README", "prep": "copy"}
+
+
+def test_non_string_type_falls_back_to_media_extension(tmp_path, capsys):
+    data = _validate(tmp_path, {"type": 7})
+    assert data["type"] == "png"
+    assert "non-string 'type'" in capsys.readouterr().out
+
+
 def test_malformed_json_returns_none_without_raising(tmp_path, capsys):
-    sidecar = tmp_path / "broken.json"
+    sidecar = tmp_path / "broken.png.star.json"
     sidecar.write_text("{", encoding="utf-8")
 
     assert ms.Load_Sidecar(str(sidecar)) is None
@@ -114,11 +136,6 @@ def test_absolute_source_is_rejected(tmp_path, capsys):
     assert "Warning" in capsys.readouterr().out
 
 
-def test_missing_type_and_no_source_is_rejected(tmp_path, capsys):
-    assert _validate(tmp_path, {"prep": "copy"}) is None
-    assert "no 'type'" in capsys.readouterr().out
-
-
 # --- registry ----------------------------------------------------------------
 
 
@@ -150,7 +167,7 @@ def test_reset_registry_clears_entries_and_failure_count(tmp_path):
 
 
 def test_write_default_sidecar_round_trips(tmp_path):
-    path = tmp_path / "skybox.json"
+    path = tmp_path / "skybox.png.star.json"
     assert ms.Write_Default_Sidecar(str(path), "png", "skybox.png", ms.PREP_COMPRESS)
     assert json.loads(path.read_text(encoding="utf-8")) == {
         "type": "png",

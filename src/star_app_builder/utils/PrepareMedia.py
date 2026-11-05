@@ -17,6 +17,8 @@ from .MediaSidecar import (
     PREP_COPY,
     Download_Media_File,
     Get_Download_Failure_Count,
+    Get_Media_Name_From_Sidecar,
+    Get_Sidecar_Path,
     Is_Hidden_File,
     Is_Sidecar_File,
     Is_URL_Source,
@@ -110,16 +112,15 @@ def BuildDirectoryIndex(root: str):
 def Resolve_Sidecars(in_immediate: dict) -> None:
     """Load, validate, download, and generate sidecars before the media walk.
 
-    Pass 1 honours explicit ``<stem>.json`` sidecars (downloading URL sources
-    that are not cached yet). Pass 2 writes a default sidecar next to every
-    media file that has none, expressing the legacy behaviour (compress images,
-    copy everything else) as data.
+    Pass 1 honours explicit ``<media filename>.star.json`` sidecars, downloading
+    URL sources that are not cached yet. Pass 2 writes a default sidecar next to
+    every media file that has none, expressing the legacy behaviour (compress
+    images, copy everything else) as data. Ordinary ``.json`` files are media
+    and are never treated as sidecars.
 
     Both passes populate the MediaSidecar registry, which is what
     ``TextureCompressor.should_compress`` consults during the walk.
     """
-    generated_sidecars = set()
-
     for abs_dir in sorted(in_immediate):
         files = in_immediate[abs_dir]
         sidecars = sorted(
@@ -140,13 +141,11 @@ def Resolve_Sidecars(in_immediate: dict) -> None:
             if data is None:
                 continue
 
-            stem = MediaPath.GetStemOfFile(sidecar)
-            source = data["source"]
-            is_url = Is_URL_Source(source)
-            if is_url:
-                target = os.path.join(abs_dir, f"{stem}.{data['type']}")
-            else:
-                target = os.path.abspath(os.path.join(abs_dir, source))
+            # The sidecar's own filename names the media it describes (and,
+            # for a URL source, the file to download into).
+            target = os.path.abspath(
+                os.path.join(abs_dir, Get_Media_Name_From_Sidecar(sidecar))
+            )
 
             if target in claimed:
                 print(
@@ -156,7 +155,8 @@ def Resolve_Sidecars(in_immediate: dict) -> None:
                 )
                 continue
 
-            if is_url:
+            source = data["source"]
+            if Is_URL_Source(source):
                 if not os.path.isfile(target):
                     print(f"Downloading {os.path.basename(target)} ...")
                     if not Download_Media_File(source, target):
@@ -168,8 +168,8 @@ def Resolve_Sidecars(in_immediate: dict) -> None:
 
             if not os.path.isfile(target):
                 print(
-                    f"Warning: sidecar {os.path.basename(sidecar)} source "
-                    f"missing: {target}"
+                    f"Warning: sidecar {os.path.basename(sidecar)} describes "
+                    f"missing media: {target}"
                 )
                 continue
 
@@ -202,26 +202,16 @@ def Resolve_Sidecars(in_immediate: dict) -> None:
             if media_file in claimed:
                 continue
 
-            own_sidecar = os.path.join(
-                abs_dir, MediaPath.GetStemOfFile(media_file) + ".json"
-            )
+            # The sidecar name includes the media extension, so two files that
+            # share a stem (skybox.png + skybox.mp4) get distinct sidecars and
+            # never collide.
+            own_sidecar = Get_Sidecar_Path(media_file)
             ext = os.path.splitext(media_file)[1].lstrip(".").lower()
             prep = PREP_COMPRESS if Is_File_A_Image(media_file) else PREP_COPY
 
             if not os.path.isfile(own_sidecar):
-                if Write_Default_Sidecar(
+                Write_Default_Sidecar(
                     own_sidecar, ext, os.path.basename(media_file), prep
-                ):
-                    generated_sidecars.add(os.path.abspath(own_sidecar))
-            elif os.path.abspath(own_sidecar) in generated_sidecars:
-                # Two media files share a stem (e.g. skybox.png + skybox.mp4)
-                # and no sidecar was authored. Only one sidecar can exist, so
-                # it describes the first file; the registry still routes both
-                # correctly for this run.
-                print(
-                    f"Warning: '{os.path.basename(media_file)}' shares a stem with "
-                    f"another media file; {os.path.basename(own_sidecar)} describes "
-                    f"only one of them. Author separate sidecars to disambiguate."
                 )
 
             Register_Media(
