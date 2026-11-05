@@ -113,6 +113,23 @@ def Is_URL_Source(source: str) -> bool:
     return source.lower().startswith(("http://", "https://"))
 
 
+def _Read_Sidecar_Text(sidecar_path: str) -> str:
+    """Decode a sidecar file, tolerating the BOMs Windows tools add.
+
+    Sidecars are hand-edited, and PowerShell's ``Set-Content -Encoding utf8``
+    writes a UTF-8 BOM while ``>``/``Out-File`` in PowerShell 5.1 write
+    UTF-16LE. ``json.load`` on a plain utf-8 stream rejects both, so the file
+    would otherwise be reported as malformed and silently ignored.
+    """
+    with open(sidecar_path, "rb") as f:
+        raw = f.read()
+    if raw.startswith(b"\xef\xbb\xbf"):
+        return raw.decode("utf-8-sig")
+    if raw.startswith((b"\xff\xfe", b"\xfe\xff")):
+        return raw.decode("utf-16")
+    return raw.decode("utf-8")
+
+
 def Load_Sidecar(sidecar_path: str):
     """Read and parse a sidecar JSON file, returning None on any failure.
 
@@ -120,8 +137,7 @@ def Load_Sidecar(sidecar_path: str):
     fall back to in-memory defaults instead of overwriting it.
     """
     try:
-        with open(sidecar_path, "r", encoding="utf-8") as f:
-            return json.load(f)
+        return json.loads(_Read_Sidecar_Text(sidecar_path))
     except (OSError, ValueError) as e:
         print(f"Warning: could not read sidecar {os.path.basename(sidecar_path)};")
         print(f"         using defaults for this run (file left unchanged).")
@@ -217,9 +233,9 @@ def Validate_Sidecar(data, sidecar_path: str):
     raw_prep = data.get("prep")
     if raw_prep is None:
         prep = PREP_COMPRESS
-    elif (
-        isinstance(raw_prep, str)
-        and raw_prep.strip().lower() in (PREP_COMPRESS, PREP_COPY)
+    elif isinstance(raw_prep, str) and raw_prep.strip().lower() in (
+        PREP_COMPRESS,
+        PREP_COPY,
     ):
         prep = raw_prep.strip().lower()
     else:
@@ -272,9 +288,7 @@ def Download_Media_File(url: str, target_path: str, timeout: int = 60) -> bool:
     tmp_path = None
     try:
         os.makedirs(target_dir, exist_ok=True)
-        req = urllib.request.Request(
-            url, headers={"User-Agent": "StarlightAppBuilder"}
-        )
+        req = urllib.request.Request(url, headers={"User-Agent": "StarlightAppBuilder"})
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             tmp_fd, tmp_path = tempfile.mkstemp(prefix=".download_", dir=target_dir)
             try:

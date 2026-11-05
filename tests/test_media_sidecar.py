@@ -91,6 +91,22 @@ def test_malformed_json_returns_none_without_raising(tmp_path, capsys):
     assert "could not read sidecar" in capsys.readouterr().out
 
 
+@pytest.mark.parametrize("encoding", ["utf-8-sig", "utf-16"])
+def test_bom_encoded_sidecar_is_read(tmp_path, encoding):
+    # Windows editors/PowerShell commonly write a BOM; it must not make the
+    # sidecar look malformed.
+    sidecar = tmp_path / "skybox.png.star.json"
+    payload = {
+        "type": "exr",
+        "source": "https://example.com/sky.exr",
+        "prep": "copy",
+    }
+    sidecar.write_bytes(json.dumps(payload).encode(encoding))
+
+    data = ms.Validate_Sidecar(ms.Load_Sidecar(str(sidecar)), str(sidecar))
+    assert data == payload
+
+
 def test_non_object_root_is_rejected(tmp_path, capsys):
     assert _validate(tmp_path, ["not", "a", "dict"]) is None
     assert "must contain a JSON object" in capsys.readouterr().out
