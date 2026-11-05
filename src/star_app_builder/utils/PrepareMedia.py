@@ -12,6 +12,20 @@ from .TextureEncoder import Is_File_A_Image
 from .TextureEncoder import Create_Media_Path
 from .TextureEncoder import STAGING_DIR_NAME
 from .TextureEncoder import is_output_complete
+from .MediaSidecar import (
+    PREP_COMPRESS,
+    PREP_COPY,
+    Download_Media_File,
+    Get_Download_Failure_Count,
+    Is_Hidden_File,
+    Is_Sidecar_File,
+    Is_URL_Source,
+    Load_Sidecar,
+    Register_Media,
+    Reset_Registry,
+    Validate_Sidecar,
+    Write_Default_Sidecar,
+)
 from star_app_builder.common import MediaPath
 from .PrepareEngineConfig import main as mainPrepConfig
 
@@ -93,18 +107,146 @@ def BuildDirectoryIndex(root: str):
     return immediate, all_files
 
 
+def Resolve_Sidecars(in_immediate: dict) -> None:
+    """Load, validate, download, and generate sidecars before the media walk.
+
+    Pass 1 honours explicit ``<stem>.json`` sidecars (downloading URL sources
+    that are not cached yet). Pass 2 writes a default sidecar next to every
+    media file that has none, expressing the legacy behaviour (compress images,
+    copy everything else) as data.
+
+    Both passes populate the MediaSidecar registry, which is what
+    ``TextureCompressor.should_compress`` consults during the walk.
+    """
+    generated_sidecars = set()
+
+    for abs_dir in sorted(in_immediate):
+        files = in_immediate[abs_dir]
+        sidecars = sorted(
+            f for f in files if Is_Sidecar_File(f) and not Is_Hidden_File(f)
+        )
+        media = sorted(
+            f for f in files if not Is_Sidecar_File(f) and not Is_Hidden_File(f)
+        )
+
+        claimed = set()
+
+        # Pass 1: explicit sidecars.
+        for sidecar in sidecars:
+            parsed = Load_Sidecar(sidecar)
+            if parsed is None:
+                continue
+            data = Validate_Sidecar(parsed, sidecar)
+            if data is None:
+                continue
+
+            stem = MediaPath.GetStemOfFile(sidecar)
+            source = data["source"]
+            is_url = Is_URL_Source(source)
+            if is_url:
+                target = os.path.join(abs_dir, f"{stem}.{data['type']}")
+            else:
+                target = os.path.abspath(os.path.join(abs_dir, source))
+
+            if target in claimed:
+                print(
+                    f"Warning: multiple sidecars claim "
+                    f"'{os.path.basename(target)}'; ignoring "
+                    f"{os.path.basename(sidecar)}."
+                )
+                continue
+
+            if is_url:
+                if not os.path.isfile(target):
+                    print(f"Downloading {os.path.basename(target)} ...")
+                    if not Download_Media_File(source, target):
+                        # Leave the sidecar in place so the next run retries.
+                        continue
+                # Downloaded files participate in stale-output cleanup from
+                # this run onward.
+                in_immediate[abs_dir].add(target)
+
+            if not os.path.isfile(target):
+                print(
+                    f"Warning: sidecar {os.path.basename(sidecar)} source "
+                    f"missing: {target}"
+                )
+                continue
+
+            media_type = data["type"]
+            actual_type = os.path.splitext(target)[1].lstrip(".").lower()
+            if actual_type and actual_type != media_type:
+                print(
+                    f"Warning: sidecar {os.path.basename(sidecar)} declares type "
+                    f"'{media_type}' but '{os.path.basename(target)}' is "
+                    f"'{actual_type}'; using the actual extension."
+                )
+                media_type = actual_type
+
+            prep = data["prep"]
+            if prep == PREP_COMPRESS and not Is_File_A_Image(target):
+                print(
+                    f"Warning: sidecar {os.path.basename(sidecar)} says compress "
+                    f"for non-image '{media_type}'; treating as copy."
+                )
+                prep = PREP_COPY
+
+            Register_Media(
+                target,
+                {"type": media_type, "source": source, "prep": prep},
+            )
+            claimed.add(target)
+
+        # Pass 2: auto-generate defaults for unclaimed media files.
+        for media_file in media:
+            if media_file in claimed:
+                continue
+
+            own_sidecar = os.path.join(
+                abs_dir, MediaPath.GetStemOfFile(media_file) + ".json"
+            )
+            ext = os.path.splitext(media_file)[1].lstrip(".").lower()
+            prep = PREP_COMPRESS if Is_File_A_Image(media_file) else PREP_COPY
+
+            if not os.path.isfile(own_sidecar):
+                if Write_Default_Sidecar(
+                    own_sidecar, ext, os.path.basename(media_file), prep
+                ):
+                    generated_sidecars.add(os.path.abspath(own_sidecar))
+            elif os.path.abspath(own_sidecar) in generated_sidecars:
+                # Two media files share a stem (e.g. skybox.png + skybox.mp4)
+                # and no sidecar was authored. Only one sidecar can exist, so
+                # it describes the first file; the registry still routes both
+                # correctly for this run.
+                print(
+                    f"Warning: '{os.path.basename(media_file)}' shares a stem with "
+                    f"another media file; {os.path.basename(own_sidecar)} describes "
+                    f"only one of them. Author separate sidecars to disambiguate."
+                )
+
+            Register_Media(
+                media_file,
+                {"type": ext, "source": os.path.basename(media_file), "prep": prep},
+            )
+
+
 def RemoveOldFiles(subDir, inputMediaFiles, currentMediaFiles, destinationMediaDir):
     """Remove output files that no longer correspond to a current input file.
 
     Operates per-directory: inputMediaFiles and currentMediaFiles are the
     immediate (non-recursive) absolute-path file sets for the same logical
     subdir. The expected set of output paths is derived from the current
-    inputs (input -> output via Create_Media_Path, which honours compression
-    renaming and .star_ignore markers), and any existing output file not in
-    that expected set is stale and removed.
+    inputs (input -> output via Create_Media_Path, which honours the sidecar's
+    prep approach), and any existing output file not in that expected set is
+    stale and removed.
+
+    Sidecars and dotfiles are input-only metadata and are never expected in
+    the output tree, so stale copies left there by older runs are removed.
     """
     expected_outputs = set()
     for in_file in inputMediaFiles:
+        if Is_Hidden_File(in_file) or Is_Sidecar_File(in_file):
+            continue
         media_path = Create_Media_Path(in_file, subDir)
         expected_outputs.add(
             os.path.abspath(
@@ -142,6 +284,12 @@ def ProcessNewFiles(
 ) -> None:
     for file in input_media_files:
         full_src_file = os.path.abspath(os.path.join(input_media_dir, os.pardir, file))
+
+        base_name = os.path.basename(full_src_file)
+        if Is_Hidden_File(base_name) or Is_Sidecar_File(base_name):
+            # Sidecars are input-only metadata; never copied, never compressed.
+            # Dotfiles (including interrupted-download temps) are not media.
+            continue
 
         media_file_path = Create_Media_Path(full_src_file, subDir)
         # Normalize to an absolute path so the form matches the absolute
@@ -340,6 +488,11 @@ def main(
     in_immediate, _ = BuildDirectoryIndex(inDir)
     out_immediate, _ = BuildDirectoryIndex(outDir)
 
+    # Resolve sidecars (load/download/generate) before the walk so the routing
+    # registry is complete and freshly-written sidecars exist on disk.
+    Reset_Registry()
+    Resolve_Sidecars(in_immediate)
+
     print("Processing media files")
     # Indeterminate progress (no total/percentage): tqdm just counts files as
     # they are preprocessed, avoiding an extra full tree walk to pre-count.
@@ -369,6 +522,13 @@ def main(
         quality=quality,
         max_threads=max_threads,
     )
+
+    download_failures = Get_Download_Failure_Count()
+    if download_failures > 0:
+        print(
+            f"Warning: {download_failures} download(s) failed; the corresponding "
+            f"media were skipped this run."
+        )
 
     print("Done")
 

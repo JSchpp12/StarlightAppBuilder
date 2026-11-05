@@ -7,7 +7,14 @@ name = "StarAppBuilder"
 version = "0.2.5"
 description = "Starlight App Builder"
 requires-python = ">=3.9"
-dependencies = ["tqdm", "pillow"]
+dependencies = ["tqdm"]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
 
 [project.scripts]
 star_app_builder = "star_app_builder.cli:main"

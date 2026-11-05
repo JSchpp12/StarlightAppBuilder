@@ -12,6 +12,8 @@ from tqdm import tqdm
 from star_app_builder.common import MediaPath
 from star_app_builder.common import get_bundled_basisu_path
 
+from .MediaSidecar import Get_Prep, PREP_COMPRESS
+
 from .Ktx2Format import (
     KTX2_IDENTIFIER,
     KTX2_HEADER_SIZE,
@@ -175,9 +177,6 @@ def is_output_complete(output_path: str, media_path) -> bool:
         return is_complete_basis(output_path)
     return True
 
-# Per-run cache so the ignore-marker lookup runs at most once per file.
-_should_compress_cache = {}
-
 class TextureCompressor:
     @staticmethod
     def search_for_file(file_path: str, texture_root_dir):
@@ -194,19 +193,6 @@ class TextureCompressor:
         return None
 
     @staticmethod
-    def search_for_star_ignore(texture_path: MediaPath) -> None:
-        # Look only in the texture's own directory rather than recursively
-        # walking the whole subtree. The .star_ignore_<stem> marker is a
-        # per-texture flag, so a single directory listing is sufficient and
-        # avoids an O(tree size) scan per image.
-        name_to_find = f".star_ignore_{texture_path.Get_Output_Stem()}"
-        texture_dir = os.path.dirname(texture_path.full_input_path)
-        if not texture_dir or not os.path.isdir(texture_dir):
-            return None
-        candidate = os.path.join(texture_dir, name_to_find)
-        return candidate if os.path.isfile(candidate) else None
-
-    @staticmethod
     def get_compressed_file_name(
         texture_info: MediaPath, use_basis_file_format: bool = False
     ) -> str:
@@ -217,16 +203,12 @@ class TextureCompressor:
 
     @staticmethod
     def should_compress(texture: MediaPath) -> bool:
-        # Memoized per input path: the ignore-marker lookup only needs to run
-        # once per file even though should_compress is called multiple times
-        # for the same texture during a single run.
-        key = os.path.abspath(texture.full_input_path)
-        cached = _should_compress_cache.get(key)
-        if cached is not None:
-            return cached
-        result = TextureCompressor.search_for_star_ignore(texture) is None
-        _should_compress_cache[key] = result
-        return result
+        # Routing requires an image extension; the sidecar's prep approach
+        # (registered per run by PrepareMedia.Resolve_Sidecars) decides whether
+        # an image is actually encoded or copied verbatim.
+        return Is_File_A_Image(texture.full_input_path) and (
+            Get_Prep(os.path.abspath(texture.full_input_path)) == PREP_COMPRESS
+        )
 
     @staticmethod
     def batch_list(lst, batch_size):

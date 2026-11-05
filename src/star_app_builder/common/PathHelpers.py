@@ -21,7 +21,7 @@ class MediaPath:
             self.output_file_base = override_output_file
 
     def Get_Input_Stem(self) -> str:
-        return os.path.splitext(self.input_file)[0]
+        return os.path.splitext(self.input_file_base)[0]
     
     def Get_Output_Stem(self) -> str:
         return os.path.splitext(self.output_file_base)[0]
