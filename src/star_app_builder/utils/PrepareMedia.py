@@ -20,6 +20,7 @@ from .MediaSidecar import (
     Get_Media_Name_From_Sidecar,
     Get_Sidecar_Path,
     Is_Hidden_File,
+    Is_Json_Data_File,
     Is_Sidecar_File,
     Is_URL_Source,
     Load_Sidecar,
@@ -116,7 +117,8 @@ def Resolve_Sidecars(in_immediate: dict) -> None:
     URL sources that are not cached yet. Pass 2 writes a default sidecar next to
     every media file that has none, expressing the legacy behaviour (compress
     images, copy everything else) as data. Ordinary ``.json`` files are media
-    and are never treated as sidecars.
+    and are never treated as sidecars; they also get no generated sidecar, so
+    data files stay plain copy candidates.
 
     Both passes populate the MediaSidecar registry, which is what
     ``TextureCompressor.should_compress`` consults during the walk.
@@ -202,12 +204,27 @@ def Resolve_Sidecars(in_immediate: dict) -> None:
             if media_file in claimed:
                 continue
 
+            ext = os.path.splitext(media_file)[1].lstrip(".").lower()
+            prep = PREP_COMPRESS if Is_File_A_Image(media_file) else PREP_COPY
+
+            if Is_Json_Data_File(media_file):
+                # JSON data files are copy candidates, not prep targets: a
+                # generated "<name>.json.star.json" would clutter the tree and
+                # suggest they are compressible media.
+                Register_Media(
+                    media_file,
+                    {
+                        "type": ext,
+                        "source": os.path.basename(media_file),
+                        "prep": PREP_COPY,
+                    },
+                )
+                continue
+
             # The sidecar name includes the media extension, so two files that
             # share a stem (skybox.png + skybox.mp4) get distinct sidecars and
             # never collide.
             own_sidecar = Get_Sidecar_Path(media_file)
-            ext = os.path.splitext(media_file)[1].lstrip(".").lower()
-            prep = PREP_COMPRESS if Is_File_A_Image(media_file) else PREP_COPY
 
             if not os.path.isfile(own_sidecar):
                 Write_Default_Sidecar(

@@ -7,6 +7,7 @@ in the media tree::
     media/logo.png
     media/logo.png.star.json
     media/settings.json          <- ordinary JSON data, copied as media
+                                      (no ``settings.json.star.json`` is generated)
 
 A sidecar looks like::
 
@@ -90,6 +91,18 @@ def Is_Sidecar_File(path: str) -> bool:
     """
     base = os.path.basename(path)
     return base.lower().endswith(SIDECAR_SUFFIX) and len(base) > len(SIDECAR_SUFFIX)
+
+
+def Is_Json_Data_File(path: str) -> bool:
+    """True for an ordinary ``.json`` data file (not a ``.star.json`` sidecar).
+
+    JSON files in the media tree are application data, not media assets: they
+    are copied verbatim and never get an auto-generated sidecar, which would
+    otherwise clutter every directory with ``<name>.json.star.json`` files.
+    """
+    if Is_Sidecar_File(path):
+        return False
+    return os.path.splitext(path)[1].lower() == ".json"
 
 
 def Get_Media_Name_From_Sidecar(sidecar_path: str) -> str:

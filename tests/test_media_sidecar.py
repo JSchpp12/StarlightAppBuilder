@@ -34,6 +34,17 @@ def test_is_sidecar_file():
     assert not ms.Is_Sidecar_File("skybox.png")
 
 
+def test_is_json_data_file():
+    assert ms.Is_Json_Data_File("settings.json")
+    assert ms.Is_Json_Data_File("SETTINGS.JSON")
+    assert ms.Is_Json_Data_File("sub/dir/data.json")
+    # Sidecars are metadata, not data files.
+    assert not ms.Is_Json_Data_File("skybox.png.star.json")
+    assert not ms.Is_Json_Data_File("settings.json.star.json")
+    assert not ms.Is_Json_Data_File("skybox.png")
+    assert not ms.Is_Json_Data_File("json")
+
+
 def test_media_name_and_sidecar_path_round_trip():
     sidecar = os.path.join("media", "skybox.png.star.json")
     assert ms.Get_Media_Name_From_Sidecar(sidecar) == "skybox.png"

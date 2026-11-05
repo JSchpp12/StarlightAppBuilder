@@ -92,16 +92,21 @@ def test_plain_json_data_file_is_media_not_a_sidecar(tmp_path):
 
     pm.Resolve_Sidecars(_index(tmp_path))
 
-    # It gets its own sidecar and is routed as ordinary copy-media.
-    sidecar = json.loads(
-        (tmp_path / "settings.json.star.json").read_text("utf-8")
-    )
-    assert sidecar == {
-        "type": "json",
-        "source": "settings.json",
-        "prep": ms.PREP_COPY,
-    }
+    # No sidecar is generated for a data JSON, and it is routed as copy-media.
+    assert not (tmp_path / "settings.json.star.json").exists()
     assert ms.Get_Prep(str(data_file)) == ms.PREP_COPY
+
+
+def test_json_extension_is_case_insensitive_and_nested_json_is_skipped(tmp_path):
+    _write(tmp_path / "Top.JSON")
+    _write(tmp_path / "nested" / "deep.json")
+
+    pm.Resolve_Sidecars(_index(tmp_path))
+
+    assert not (tmp_path / "Top.JSON.star.json").exists()
+    assert not (tmp_path / "nested" / "deep.json.star.json").exists()
+    assert ms.Get_Prep(str(tmp_path / "Top.JSON")) == ms.PREP_COPY
+    assert ms.Get_Prep(str(tmp_path / "nested" / "deep.json")) == ms.PREP_COPY
 
 
 def test_hidden_files_are_ignored_and_get_no_sidecar(tmp_path):
